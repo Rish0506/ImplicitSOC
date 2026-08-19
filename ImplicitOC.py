@@ -11,7 +11,7 @@ class ImplicitOC(ABC):
     using implicit methods.
     """
     
-    def __init__(self, state_dim, control_dim, batch_size, t_initial, t_final, nt, 
+    def __init__(self, state_dim, control_dim, noise_dim, batch_size, t_initial, t_final, nt, 
                  alphaL, alphaG,  device='cpu', alphaHJB = [0.0,0.0], alphaadj = [0.0,0.0],
                  track_all_fp_iters = False, pen_pos=False): 
         """
@@ -29,6 +29,7 @@ class ImplicitOC(ABC):
         self.state_dim = state_dim
         self.control_dim = control_dim
         self.batch_size = batch_size
+        self.noise_dim = noise_dim
         self.t_initial = t_initial
         self.t_final = t_final
         self.nt = nt
@@ -73,7 +74,22 @@ class ImplicitOC(ABC):
             torch.Tensor: Gradient of Lagrangian of shape (batch_size, control_dim)
         """
         pass
-    
+        
+    @abstractmethod
+    def compute_sigma(self, t, z):
+        """
+        Compute the diffusion coefficient/matrix sigma(t, z).
+
+        Args:
+            t (torch.Tensor or float): Current time
+            z (torch.Tensor): State vector of shape (batch_size, state_dim)
+
+        Returns:
+            torch.Tensor: Diffusion matrix of shape
+                          (batch_size, state_dim, noise_dim)
+        """
+        pass
+        
     @abstractmethod
     def compute_G(self, z):
         """
@@ -146,7 +162,6 @@ class ImplicitOC(ABC):
             torch.Tensor: Gradient of G w.r.t. z of shape (batch_size, state_dim, state_dim)
         """
         pass
-
     
     def compute_general_H(self, t, z, u, p):
         """
@@ -173,7 +188,45 @@ class ImplicitOC(ABC):
         H_val = L_val + inner_product
         
         return H_val
-    
+
+    def sample_dW(self, z, sigma):
+        """
+        Sample one Brownian increment dW ~ N(0, h I) where h = Delta t for the current batch
+
+        Args:
+            z(torch.Tensor): Current state, shape (batch_size, state_dim).
+            sigma(torch.Tensor): Diffusion matrix, shape (batch_size, state_dim, noise_dim).
+
+        Returns:
+            torch.Tensor: Brownian increment of shape (batch_size, noise_dim).
+        """
+        if sigma.dim() != 3:
+            raise ValueError(
+                "compute_sigma(t,z) must return a tensor of shape"
+                "(batch_size, state_dim, noise_dim)"
+            )
+        noise_dim = sigma.shape[-1]
+        return torch.sqrt(
+            torch.as_tensor(self.h, device=z.device, dtype=z.dtype)
+        ) * torch.randn(
+            z.shape[0], noise_dim, device=z.device, dtype=z.dtype
+        )
+
+    def compute_diffusion_term(self, t, z, phi_net):
+        """
+        Compute the stochastic HJB diffusion term 
+        1/2 Tr[sigma sigma^T V_zz]
+        The Hessian is evaluated through Hessian-vector products, so the
+        full state_dim \times state_dim Hessian is not explicitly formed.aa
+        Args:
+            t: Current time
+            z: State tensor of shape (batch_size, state_dim).
+            phi_net: Value-function network with getPhi(t,z).
+        Returns:
+            Tensor of shape (batch_size).
+        """
+        
+        
     def compute_grad_H_u(self, t, z, u, p):
         """
         Compute the gradient of the Hamiltonian with respect to control.
