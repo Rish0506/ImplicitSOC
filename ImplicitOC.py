@@ -225,6 +225,11 @@ class ImplicitOC(ABC):
         Returns:
             Tensor of shape (batch_size).
         """
+        if sigma.dim() != 3:
+            raise ValueError(
+                "compute_sigma(t,z) must return a tensor of shape"
+                "(batch_size, state_dim, noise_dim)"
+            )
         
         
     def compute_grad_H_u(self, t, z, u, p):
