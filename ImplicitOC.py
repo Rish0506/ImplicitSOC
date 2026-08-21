@@ -230,6 +230,31 @@ class ImplicitOC(ABC):
                 "compute_sigma(t,z) must return a tensor of shape"
                 "(batch_size, state_dim, noise_dim)"
             )
+        z_hess = z.detach().requires_grad_(True)
+        V = phi_net.getPhi(t, z_hess)
+        grad_V = torch.autograd.grad(
+            V.sum(),z_hess,create_graph=True,retain_graph=True,
+        )[0]
+        """
+        We keep sigma fixed while taking the Hessian-vector product.
+        This computes V_zz sigma_j, not a derivative of sigma itself
+        """
+        sigma = sigma.detach()
+        diffusion_term = torch.zeros(
+            z.shape[0], device = z.device, dtype = z.dtype
+        )
+
+        for j in range(sigma.shape[-1]):
+            sigma_j = sigma[:,:,j]
+            H_sigma_j = torch.autograd.grad(
+                (grad_V*sigma_j).sum(), z_hess, create_graph=True, retain_graph=True,
+            )[0]
+
+        diffusion_term = diffusion_term + torch.sum(
+            sigma_j * H_sigma_j, dim = 1
+        )
+
+        return 0.5 * diffusion_term
         
         
     def compute_grad_H_u(self, t, z, u, p):
