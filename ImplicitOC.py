@@ -315,6 +315,23 @@ class ImplicitOC(ABC):
         grad_H_u_val = grad_term1 + grad_term2
 
         return grad_H_u_val
+
+    def compute_adjoint_terms(self, t, z, u, p, policy_jacobian = None, 
+                              include_policy_jacobian = True, return_details = False,):
+        """
+        dp = -A ds - sum_i beta_i dW^(i) where 
+        A = L_z + f_z^T p + (D_z u)^T [L_u + f_u^T p + c_sigma],
+        beta_i = (D_z sigma^(i))^T p, 
+        c_sigma = sum_i (D_z sigma^(i))^T beta_i 
+
+        Args:
+            t : Current time.
+            z : Current state, shape(batch_size, state_dim)
+            u : Current control, shape (batch_size, control_dim)
+            p : Current adjoint/value gradient, shape (batch_size, state_dim)
+        """
+    
+    
     
     def solve_adjoint_eq(self, z, u):
         """
