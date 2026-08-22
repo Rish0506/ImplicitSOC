@@ -316,31 +316,6 @@ class ImplicitOC(ABC):
 
         return grad_H_u_val
     
-    def compute_grad_H_z(self, t, z, u, p):
-        """
-        Compute the gradient of the Hamiltonian with respect to state.
-        
-        Args:
-            t (torch.Tensor or float): Current time
-            z (torch.Tensor): State vector of shape (batch_size, state_dim)
-            u (torch.Tensor): Control input of shape (batch_size, control_dim)
-            p (torch.Tensor): Costate vector of shape (batch_size, state_dim)
-            
-        Returns:
-            torch.Tensor: Gradient of H w.r.t. z of shape (batch_size, state_dim)
-        """
-
-        batch_size = z.shape[0]
-        
-        # Compute gradient of dynamics w.r.t. state
-        grad_f_z_term = self.compute_grad_f_z(t, z, u)
-        
-        # Compute gradient of p^T f w.r.t. z
-        p = p.unsqueeze(-1)  # Shape: (batch_size, state_dim, 1)
-        output = torch.bmm(grad_f_z_term, p).view(batch_size, self.state_dim)
-        
-        return output
-    
     def solve_adjoint_eq(self, z, u):
         """
         Compute the adjoint equation for the Hamiltonian.
