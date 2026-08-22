@@ -302,16 +302,16 @@ class ImplicitOC(ABC):
         Returns:
             torch.Tensor: Gradient of H w.r.t. u of shape (control_dim,)
         """
-        # Compute gradient of Lagrangian
+        """ Compute gradient of Lagrangian """
         grad_term1 = -1.0*self.compute_grad_lagrangian_(t, z, u)
 
-        # Compute gradient of dynamics
+        """ Compute gradient of dynamics """
         grad_f_u_term = -1.0*self.compute_grad_f_u_(z, u, grad_f_u_term)
 
-        # Compute gradient of p^T f w.r.t. u
+        """ Compute gradient of p^T f w.r.t. u """
         grad_term2 = torch.matmul(grad_f_u_term, p)
 
-        # Compute total gradient
+        """ Compute total gradient """
         grad_H_u_val = grad_term1 + grad_term2
 
         return grad_H_u_val
@@ -329,10 +329,130 @@ class ImplicitOC(ABC):
             z : Current state, shape(batch_size, state_dim)
             u : Current control, shape (batch_size, control_dim)
             p : Current adjoint/value gradient, shape (batch_size, state_dim)
+            
+        Returns: 
+            adjoint_drift : A, shape (batch_size, state_dim)
+            adjoint_diffusion: beta, shape(batch_size, state_dim, noise_dim).
+            returned only when return_details = True.
         """
-    
-    
-    
+        batch_size = z.shape[0]
+        if z.shape != (batch_size, self.state_dim):
+            raise ValueError("z must have shape (batch_size, state_dim).")
+        if u.shape != (batch_size, self.control_dim):
+            raise ValueError("u must have shape (batch_size, control_dim).")
+        if p.shape != (batch_size, self.state_dim):
+            raise ValueError("p must have shape (batch_size, state_dim).")
+        """
+        u and p are held fixed while differentiating L,f and sigma in z.
+        # clone() preserves a path to the original for outer training gradients
+        """
+
+        z_partial = z.clone().requires_grad_(True)
+        # 1) L_z
+        L_value = self.compute_lagrangian(t, z_partial, u)
+        L_value = L_value.reshape(batch_size, -1).sum(dim=1)
+        L_value = L_value + 0.0*z_partial.sum(dim=1) 
+        L_z = torch.autograd.grad(
+            L_value.sum(),z_partial, create_graph=True, retain_graph=True
+        )[0]
+
+        """ 2) f_z^T p """
+
+        grad_f_z = self.compute_grad_f_z(t,z,u)
+        if sigma.shape != (
+            batch_size, self.state_dim, self.noise_dim
+        ):
+            raise ValueError(
+                "compute_sigma(t, z) must return shape "
+                "(batch_size, state_dim, noise_dim)."
+            )
+        f_z_T_p = torch.bmm(grad_f_z, p.unsqueeze(-1)).squeeze(-1)
+
+        """ 3) Diffusion term beta_i and c_sigma """
+        sigma = self.compute_sigma(t,z_partial)
+        if sigma.shape != (
+            batch_size, self.state_dim, self.noise_dim
+        ):
+            raise ValueError(
+                "compute_sigma(t, z) must return shape "
+                "(batch_size, state_dim, noise_dim)."
+            )
+
+        beta_columns = []
+        sigma_correction = torch.zeros_like(z_partial)
+
+        for i in range(self.noise_dim):
+            sigma_i = sigma[:,:,i] + 0.0* z_partial
+            beta_i = torch.autograd.grad(
+                sigma_i,z_partial, grad_outputs = p, create_graph = True, retain_graph = True,
+            )[0]
+            sigma_correction_i = torch.autograd.grad(
+                sigma_i, z_partial, grad_outputs=beta_i, create_graph = True, retain_graph = True,
+            )[0]
+            beta_columns.append(beta_i)
+            sigma_correction = sigma_correction + sigma_correction_i
+
+        adjoint_diffusion = torch.stack(beta_columns, dim=2)
+
+        """ 4) L_u + f_u^T p, sigma does not depend on u."""
+        H_u = self.compute_grad_H_u(t,z,u,p)
+
+        if H_u.shape != sigma_correction.shape:
+            raise ValueError(
+                "The supplied adjoint equation adds the sigma_z correction "
+                "to L_u + f_u^T p.  H_u has control_dim components while "
+                "the displayed sigma_z correction has state_dim components. "
+                "The equation as written therefore requires "
+                "control_dim == state_dim."
+            )
+            
+        policy_vector = H_u +sigma_correction
+
+        """ 5) (D_z u)^T policy_vector """
+        if include_policy_jacobian:
+            if policy_jacobian is not None:
+                expected_shape = (
+                    batch_size, self.control_dim, self.state_dim
+                )
+                if policy_jacobian.shape != expected_shape:
+                    raise ValueError(
+                        "policy_jacobian must have shape "
+                        "(batch_size, control_dim, state_dim)."
+                    )
+                policy_term = torch.bmm(
+                    policy_jacobian.transpose(1,2), policy_vector.unsqueeze(-1),
+                ).squeeze(-1)
+            else:
+                if not z.requires_grad or not u.requires_grad:
+                    raise ValueError(
+                        "To evaluate the feedback-policy term, u must be "
+                        "computed from a state tensor z with requires_grad=True, "
+                        "or policy_jacobian must be supplied explicitly."
+                    )
+                policy_term = torch.autograd.grad(u,z,grad_outputs=policy_vector, 
+                                    create_graph = True, retain_graph = True, allow_unused = True,
+                )[0]
+                if policy_term is None:
+                    policy_term = torch.zeros_like(z)
+        else:
+            policy_term = torch.zeros_like(z)
+
+        """Complete dt coefficient A from the adjoint equation """"
+        adjoint_drift = L_z + f_z_T_p + policy_term 
+
+        if return_details:
+            details={"L_z": L_z,
+                "f_z_T_p": f_z_T_p,
+                "H_u": H_u,
+                "sigma_z_T_p": adjoint_diffusion,
+                "sigma_correction": sigma_correction,
+                "policy_vector": policy_vector,
+                "policy_term": policy_term,
+            }
+            return adjoint_drift, adjoint_diffusion, details
+            
+        return adjoint_drift, adjoint_diffusion
+
     def solve_adjoint_eq(self, z, u):
         """
         Compute the adjoint equation for the Hamiltonian.
