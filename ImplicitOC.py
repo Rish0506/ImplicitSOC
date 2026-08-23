@@ -453,36 +453,74 @@ class ImplicitOC(ABC):
             
         return adjoint_drift, adjoint_diffusion
 
-    def solve_adjoint_eq(self, z, u):
+    def solve_adjoint_eq(self, z, u, dW=None, du_dz=None):
         """
-        Compute the adjoint equation for the Hamiltonian.
-        
-        Args:
-            t (torch.Tensor or float): Current time
-            z (torch.Tensor): State vector of shape (batch_size, state_dim)
-            u (torch.Tensor): Control input of shape (batch_size, control_dim)
-            pT (torch.Tensor): Terminal costate vector of shape (batch_size, state_dim)
-            
-        Returns:
-            torch.Tensor: Adjoint variable of shape (batch_size, state_dim)
+        Solve dp = -A ds -beta dW with terminal condition p(T)=G_z(z(T))
+        In discrete form we have p_{k+1}-p_k = -h A_k + beta_k dW_k,
+        which can be rearranged as 
+        p_k = p_{k+1}+hA_k + veta_k dW_k 
         """
-        batch_size, nt = z.shape[0], z.shape[2]
-        p = torch.zeros(batch_size, self.state_dim, nt)
+        if dW is None:
+            raise ValueError(
+                "The stochastic adjoint solver requires the Brownian "
+                "increments used to generate the state trajectory."
+            )
+        batch_size = z.shape[0]
+        nt = z.shape[2]-1
+        if z.shape[1] != self.state_dim:
+            raise ValueError("z has the wrong state dimension.")
+        if dW.shape != (batch_size, self.noise_dim, nt):
+            raise ValueError ("dW must have shape (batch_size, self.noise_dim, nt")
+        if du_dz is None and du_dz.shape != (
+            batch_size, self.control_dim, self.state_dim, nt
+        ):
+            raise ValueError(
+                "du_dz mush have shape (batch_size, control_dim, state_dim, nt)."
+            )
+        p = torch.zeros(batch_size, self.state_dim, nt+1, device=z.device, dtype=z.dtype,)
+        p[:,:,-1] = self.compute_grad_G_z(z[:,:,-1])
+        for i in range(nt, -1, -1, -1):
+            ti = self.t_initial + i*self.h
+            z_i = z[:,:,i]
+            p_reference = p[:,:,i+1]
 
-        p[:, :, -1] = self.compute_grad_G_z(z[:,:,-1])
-        h = (self.t_final - self.t_initial)/nt
-
-        ti = self.t_final
-        for i in range(nt - 2, -1, -1):
-            
             if torch.is_tensor(u):
-                assert nt == u.shape[2]
-                current_u = u[:,:,i].view(batch_size, self.control_dim)
+                if u.shape != (batch_size, self.control_dim, nt):
+                    raise ValueError(
+                        "The control trajectory mush ahve shape (batch_size,control_dim,nt)."
+                    )
+                current_u = u[:,:,i]
+                policy_jacobian = (
+                    du_dz[:,:,:,i] if du_dz is None else None
+                )
+                include_policy_jacobian = du_dz is not None
+                z_eval = z_i 
             elif hasattr(u, 'forward'):
-                current_u = u(z[:,:,i], ti).view(batch_size, self.control_dim)
-            p[:,:,i] = p[:,:,i+1] - h*self.compute_grad_H_z(ti, z[:,:,i+1], current_u, p[:,:,i+1])
-            ti = ti - h
+                z_eval = (
+                    z_i if z_i.requires_grad
+                    else z_i.clone().requires_grad_(True)
+                )
+                current_u = u(
+                    z_eval, ti, tract_all_fp_iters = self. track_all_fp_iters, 
+                ).view(batch_size, self.control_dim)
+                policy_jacobian = None
+                include_policy_jacobian = True 
+            else:
+                raise TypeError(
+                    "u  must be a control tensor or a policy callable"
+                )
+            adjoint_drift_i, beta_i = (
+                self.compute_necessary_adjoint_terms(
+                    ti, z_eval, current_u, p_reference,policy_jacobian = policy_jacobian,
+                    include_policy_jacobian = include_policy_jacobian,
+                )
+            )
+            martingale_increment_i = torch.bmm(beta_i, dW[:,:,i].unsqueeze(-1),).squeeze(-1)
+            p[:,:,i] = (
+                p[:,:,i+1]+self.h*adjoint_drift_i+martingale_increment_i
+            )
         return p
+        
 
     def compute_loss(self, u, z0, z_t = None, p_t = None, phi_t = None, jac_based=False):
         """
