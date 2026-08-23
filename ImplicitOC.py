@@ -522,8 +522,11 @@ class ImplicitOC(ABC):
         return p
         
 
-    def compute_loss(self, u, z0, z_t = None, p_t = None, phi_t = None, jac_based=False):
-        """
+    def compute_loss(self, u, z0, z_t = None, p_t = None, phi_t = None, jac_based=False,
+                    dW_t = None, du_dz_t = None):
+        """ 
+        Z_{k+1} = Z_k + h f_k + sigma_k dW_k, dW_k ~ N(0,hI)
+        -V_t - [L+V_z^T f] - 1/2 Tr[sigma sigma^T V_zz].
         Compute the total cost of a trajectory.
         
         Args:
@@ -540,10 +543,7 @@ class ImplicitOC(ABC):
         cadj, cadjfin = torch.tensor(0.0, device=z0.device, dtype=z0.dtype), torch.tensor(0.0, device=z0.device, dtype=z0.dtype)
         largest_grad_H_u = -1.0
         avg_grad_H_u = 0.0
-        
-        z = z0
-        # ti = 0.0 * torch.ones(1, device=self.device)
-        ti = 0.0
+        ti = self.t_initial
         # Integrate system using Euler's method
         if jac_based:
             assert self.nt == u.shape[2] and self.nt+1 == z_t.shape[2] \
