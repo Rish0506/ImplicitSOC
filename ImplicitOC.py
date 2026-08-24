@@ -11,7 +11,7 @@ class ImplicitOC(ABC):
     using implicit methods.
     """
     
-    def __init__(self, state_dim, control_dim, noise_dim, batch_size, t_initial, t_final, nt, 
+    def __init__(self, state_dim, control_dim, noise_dim, batch_size, tinitial, t_final, nt, 
                  alphaL, alphaG,  device='cpu', alphaHJB = [0.0,0.0], alphaadj = [0.0,0.0],
                  track_all_fp_iters = False, pen_pos=False): 
         """
@@ -21,7 +21,7 @@ class ImplicitOC(ABC):
             state_dim (int): Dimension of the state vector
             control_dim (int): Dimension of the control vector
             batch_size (int): Batch size for trajectory optimization
-            t_initial (float): Initial time
+            tinitial (float): Initial time
             t_final (float): Final time
             nt (int): Number of time steps
             device (str): Device to perform computation on ('cpu' or 'cuda')
@@ -30,11 +30,11 @@ class ImplicitOC(ABC):
         self.control_dim = control_dim
         self.batch_size = batch_size
         self.noise_dim = noise_dim
-        self.t_initial = t_initial
+        self.tinitial = tinitial
         self.t_final = t_final
         self.nt = nt
         self.device = device
-        self.h = (t_final - t_initial) / nt
+        self.h = (t_final - tinitial) / nt
         self.pen_pos = pen_pos
 
         self.oc_problem_name = ""
@@ -475,7 +475,7 @@ class ImplicitOC(ABC):
         # Backward loop in time
         for i in range(nt, -1, -1, -1):
             # Provides t_k, z_k, p_k+1
-            ti = self.t_initial + i*self.h
+            ti = self.tinitial + i*self.h
             z_i = z[:,:,i]
             p_ref = p[:,:,i+1]
             # torch.is_tensor vs hasattr(u, forward) selects whether the control is 
@@ -502,14 +502,14 @@ class ImplicitOC(ABC):
                 raise TypeError(
                     "u  must be a control tensor or a policy callable"
                 )
-            adjoint_drift_i, beta_i = (
+            adjoint_drifti, beta_i = (
                 self.compute_necessary_adjoint_terms(
                     ti, z_eval, current_u, p_ref,policy_jacobian = policy_jacobian,
                     include_policy_jacobian = include_policy_jacobian,
                 )
             )
-            martingale_increment_i = torch.bmm(beta_i, dW[:,:,i].unsqueeze(-1),).squeeze(-1)
-            p[:,:,i] = (  p[:,:,i+1] + self.h*adjoint_drift_i + martingale_increment_i)
+            martingale_incrementi = torch.bmm(beta_i, dW[:,:,i].unsqueeze(-1),).squeeze(-1)
+            p[:,:,i] = (  p[:,:,i+1] + self.h*adjoint_drifti + martingale_incrementi)
         return p
         
 
@@ -535,7 +535,7 @@ class ImplicitOC(ABC):
         cadj, cadjfin = torch.tensor(0.0, device=z0.device, dtype=z0.dtype), torch.tensor(0.0, device=z0.device, dtype=z0.dtype)
         largest_grad_H_u = -1.0
         avg_grad_H_u = 0.0
-        ti = self.t_initial
+        ti = self.tinitial
         # Integrate system using Euler's method
         if jac_based:
             # verifies tensor dimensions along time axis match discretization steps nt
@@ -551,15 +551,15 @@ class ImplicitOC(ABC):
                 p_next = p_t[:,:,i+1]
                 dW_k = dW_t[:,:,i]
                 
-                # compute sigma(t_i, z_i+1)
+                # compute sigma(ti, z_i+1)
                 sigma_k = self.compute_sigma(ti,z_k)
-                # cost L(t_i, z_{i+1},u_i)
+                # cost L(ti, z_{i+1},u_i)
                 L_k = self.compute_lagrangian(ti, z_k, current_u)
                 # Accumulates step cost multiplied by h.
                 running_cost = running_cost + self.h * L_k
 
                 """Use of Ito formula gives us the expression for dV where V(t,z_t)"""
-                # Gives sigma(t_i, z_k) \Delta W_i 
+                # Gives sigma(ti, z_k) \Delta W_i 
                 sigma_dW_k = torch.bmm(sigma_k, dW_k.unsqueeze(-1)).squeeze(-1)
                 # V_i+1 - V_i + h.L_i - p_i^T(sigma_i \Delt w_i)
                 value_residual = (phi_t[:,:,i+1].reshape(batch_size)-phi_t[:,:,i].reshape(batch_size)
@@ -585,7 +585,7 @@ class ImplicitOC(ABC):
                 cadj = cadj + self.h * torch.mean(adjoint_residual.square().sum(dim=1))
 
                 # Optimality analysis
-                # H_u means nabla_z H(t_i,z_i, u_i,p_i)
+                # H_u means nabla_z H(ti,z_i, u_i,p_i)
                 H_u_k = details["H_u"]
                 # \|nabla_u H\|_2
                 grad_norm = torch.linalg.vector_norm(H_u_k, dim=1)
@@ -738,7 +738,7 @@ class ImplicitOC(ABC):
         largest_grad_H_u = -1.0
         avg_grad_H_u = 0.0
         
-        ti = self.t_initial
+        ti = self.tinitial
         # Integrate system using Euler's method
         if jac_based:
             assert self.nt == u.shape[2] and self.nt+1 == z_t.shape[2] \
@@ -799,15 +799,21 @@ class ImplicitOC(ABC):
             elif hasattr(u, 'forward'):
                 for i in range(self.nt):
                     z_k = z
-                    t_k = t_i
+                    t_k = ti
                     current_u = u(z_k, t_k, track_all_fp_iters=self.track_all_fp_iters).view(batch_size, self.control_dim)
                     running_cost = running_cost + self.h * self.compute_lagrangian(t_k, z_k, current_u)
+                    gradPhi_k = u.p_net(t_k, z_k, full_grad=True)
+                    p_k = gradPhi_k[:, :self.state_dim]
                     
                     if hasattr(u.p_net, "getPhi"):
                         # double check sign
-                        cHJB = cHJB + torch.mean(u.p_net.getPhi(ti,z) -
-                                            self.h*self.compute_general_H(ti, z, current_u, -gradPhi[:,:self.state_dim]).view(-1,1)) 
-                    grad_H_u = self.compute_grad_H_u(ti, z, current_u, gradPhi[:,:self.state_dim])
+                        sigma_val = self.compute_sigma(t_k,z_k)
+                        diffusion_term = self.compute_diffusion_term(t_k,z_k,u.p_net, sigma=sigma_val)
+                        H_val = self.compute_general_H(t_k, z_k, current_u, p_k)
+                        hjb_residual = gradPhi_k[:,-1] - H_val - diffusion_term
+                        cHJB = cHJB + torch.mean(hjb_residual.square())
+                    
+                    grad_H_u = details["H_u"]
                     max_norm_grad_H_u = torch.max(torch.norm(grad_H_u, dim=1)).item()
                     avg_grad_H_u += torch.mean(torch.norm(grad_H_u, dim=1)).item()
                     if max_norm_grad_H_u > largest_grad_H_u:
@@ -877,13 +883,13 @@ class ImplicitOC(ABC):
         JFB compute_loss with closed-form adjoint check.
         """
         B = z0.shape[0]
-        dt = (self.t_final - self.t_initial) / self.nt
+        dt = (self.t_final - self.tinitial) / self.nt
         running_cost = torch.tensor(0.0, device=z0.device)
         cHJB         = torch.tensor(0.0, device=z0.device)
         cadj         = torch.tensor(0.0, device=z0.device)
         max_grad_u_H = torch.tensor(-1.0, device=z0.device)
         z = z0.clone().requires_grad_(True)
-        t = self.t_initial
+        t = self.tinitial
 
         # Compute Phi0 and its gradient dPhi0 = D_zPhi0
         Phi  = policy.p_net.getPhi(t, z)              # (B,1)
