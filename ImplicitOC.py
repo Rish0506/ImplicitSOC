@@ -411,7 +411,6 @@ class ImplicitOC(ABC):
                 "The equation as written therefore requires "
                 "control_dim == state_dim."
             )
-        # this require control dim == state_dim
         policy_vector = H_u +sigma_correction
 
         """ 5) (D_z u)^T (L_u + f_u^T p + sigma_correction) """
