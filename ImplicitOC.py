@@ -617,49 +617,82 @@ class ImplicitOC(ABC):
             is_direct_control = getattr(u, 'is_direct_control', False)
 
             for i in range(self.nt):
-                current_u = u(z, ti, track_all_fp_iters=self.track_all_fp_iters).view(batch_size, self.control_dim)
-                z = z + self.h * self.compute_f(ti, z, current_u)
-                running_cost = running_cost + self.h * self.compute_lagrangian(ti, z, current_u)
+                z_k = z
+                t_k = ti
+                current_u = u(z_k, t_k, track_all_fp_iters=self.track_all_fp_iters).view(batch_size, self.control_dim)
+                running_cost = running_cost + self.h * self.compute_lagrangian(t_k, z_k, current_u)
+                f_val = self.compute_f(t_k,z_k, current_u)
+                sigma_val = self.compute_sigma(t_k,z_k)
 
                 # Only compute HJB and adjoint for implicit control methods
                 if not is_direct_control:
-                    gradPhi = u.p_net(ti, z, full_grad=True)
-                    cadj = cadj + torch.mean(gradPhi[:,:self.state_dim] - self.h*self.compute_grad_H_z(ti, z, current_u, gradPhi[:,:self.state_dim]))
-                    if hasattr(u.p_net, "getPhi"):
-                        # double check sign
-                        #assert gradPhi[:,-1:].shape == self.compute_general_H(ti, z, current_u, gradPhi[:,:self.state_dim]).view(-1,1).shape
-                            cHJB = cHJB + self.h*torch.mean(torch.linalg.vector_norm(gradPhi[:,-1:] - self.compute_general_H(ti, z, current_u, gradPhi[:,:self.state_dim]).view(-1,1), ord=2, dim=1))
+                    gradPhi_k = u.p_net(t_k, z_k, full_grad=True)
+                    p_k = gradPhi_k[:, :self.state_dim]
+                    H_val = self.compute_general_H(t_k, z_k, current_u, p_k)
+                    diffusion_term = self.compute_diffusion_term(
+                        t_k, z_k, u.p_net,sigma=sigma_val,)
+                    hjb_residual = ( gradPhi_k[:, -1] - H_val - diffusion_term)
+                    cHJB = cHJB + self.h * torch.mean(hjb_residual.square())
 
-                        grad_H_u = self.compute_grad_H_u(ti, z, current_u, gradPhi[:,:self.state_dim])
-                        max_norm_grad_H_u = torch.max(torch.linalg.vector_norm(grad_H_u, ord=2, dim=1)).item()
-                        avg_grad_H_u += torch.mean(torch.linalg.vector_norm(grad_H_u, ord=2, dim=1)).item()
-                        if max_norm_grad_H_u > largest_grad_H_u:
-                            largest_grad_H_u = max_norm_grad_H_u
+                    adjoint_drift_k, beta_k, details = (
+                        self.compute_necessary_adjoint_terms(
+                            t_k,z_k,current_u,p_k,include_policy_jacobian=True,
+                            return_details=True,
+                        )
+                    )
+                    H_u_k = details["H_u"]
+                    grad_norm = torch.linalg.vector_norm(H_u_k, dim=1)
+                    largest_grad_H_u = max(largest_grad_H_u,
+                        torch.max(grad_norm).item(),
+                    )
+                    avg_grad_H_u += torch.mean(grad_norm).item()
 
-                    ti = ti + self.h
-
-                # Calculate terminal cost
-                temp_final_cost = self.compute_G(z)
-                terminal_cost = torch.mean(temp_final_cost)
-
-                # Only compute terminal HJB and adjoint for implicit control methods
+                dW = self.sample_dW(z_k, sigma_val)
+                z_next = z_k + self.h * f_val + torch.bmm(
+                    sigma_val, dW.unsqueeze(-1)).squeeze(-1)
+                t_next = t_k + self.h
+                
                 if not is_direct_control:
-                    if self.pen_pos:
-                        if (self.oc_problem_name == "Double Integrator") or (self.oc_problem_name == "Multi Quadcopter"):
-                            gradPhi_p = (gradPhi[:,:self.state_dim].reshape(batch_size*self.num_agents, -1))[:,:3]
-                            cadjfin = torch.mean(gradPhi_p.reshape(batch_size,-1) - self.compute_grad_G_z(z) )
-                        elif self.oc_problem_name == "Multi Bicycle":
-                            gradPhi_p = (gradPhi[:,:self.state_dim].reshape(batch_size*self.num_agents, -1))[:,:2]
-                            cadjfin = torch.mean(gradPhi_p.reshape(batch_size,-1) - self.compute_grad_G_z(z) )
-                        elif self.oc_problem_name == "Single Quadcopter":
-                            gradPhi_p = (gradPhi[:,:self.state_dim].reshape(batch_size, -1))[:,:3]
-                            cadjfin = torch.mean(gradPhi_p.reshape(batch_size,-1) - self.compute_grad_G_z(z) )
-                    else:
-                        cadjfin = cadjfin + torch.mean(gradPhi[:,:self.state_dim] - self.compute_grad_G_z(z) )
+                    p_next = u.p_net(t_next, z_next, full_grad=True)[:, :self.state_dim]
+                    martingale_increment = torch.bmm(beta_k, dW.unsqueeze(-1)).squeeze(-1)
+                    adjoint_residual = (p_next- p_k+ self.h * adjoint_drift_k+ martingale_increment)
+                    cadj = cadj + self.h * torch.mean(adjoint_residual.square().sum(dim=1))
 
-                    if hasattr(u.p_net, "getPhi"):
-                        #assert u.p_net.getPhi(ti,z).shape == temp_final_cost.view(-1, 1).shape
-                        cHJBfin = torch.mean(torch.linalg.vector_norm(u.p_net.getPhi(ti,z) - self.alphaG*temp_final_cost.view(-1, 1), ord=2, dim=1))
+                z = z_next
+                ti = t_next
+
+            # Calculate terminal cost
+            terminal_values = self.compute_G(z)
+            terminal_cost = torch.mean(terminal_values)
+
+            # Only compute terminal HJB and adjoint for implicit control methods
+            if not is_direct_control:
+                gradPhi_T = u.p_net(ti, z, full_grad=True)
+                p_T = gradPhi_T[:, :self.state_dim]
+                grad_G = self.compute_grad_G_z(z)
+                if self.pen_pos:
+                    if self.oc_problem_name in (
+                        "Double Integrator", "Multi Quadcopter"
+                    ):
+                        p_compare = (p_T.reshape(batch_size * self.num_agents, -1
+                            )[:, :3].reshape(batch_size, -1)
+                        )
+                    elif self.oc_problem_name == "Multi Bicycle":
+                        p_compare = ( p_T.reshape( batch_size * self.num_agents, -1
+                            )[:, :2].reshape(batch_size, -1)
+                        )
+                    elif self.oc_problem_name == "Single Quadcopter":
+                        p_compare = p_T.reshape(batch_size, -1)[:, :3]
+                    else:
+                        p_compare = p_T
+                else:
+                    p_compare = p_T
+
+                cadjfin = torch.mean((p_compare - grad_G).square().sum(dim=1))
+                V_T = u.p_net.getPhi(ti, z).reshape(batch_size)
+                cHJBfin = torch.mean((V_T - self.alphaG * terminal_values).square())
+        else:
+            raise TypeError("u must be a control tensor or a policy callable.")
         
         # Calculate mean running cost
         running_cost = torch.mean(running_cost)
