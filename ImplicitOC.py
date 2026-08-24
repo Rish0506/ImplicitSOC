@@ -712,7 +712,7 @@ class ImplicitOC(ABC):
         avg_grad_H_u = avg_grad_H_u / self.nt
         return total_cost, running_cost, terminal_cost, cHJB, cHJBfin, cadj, cadjfin, largest_grad_H_u, avg_grad_H_u
     
-    def compute_loss_verify(self, u, z0, z_t = None, p_t = None, phi_t = None, jac_based=False):
+    def compute_loss_verify(self, u, z0, z_t = None, p_t = None, phi_t = None, dW_t = None, du_dz_t= None, jac_based=False):
         """
         Compute the total cost of a trajectory as well as numerically verify certain 
         theoretical assumptions
@@ -738,56 +738,71 @@ class ImplicitOC(ABC):
         largest_grad_H_u = -1.0
         avg_grad_H_u = 0.0
         
-        z = z0
-        ti = 0.0
+        ti = self.t_initial
         # Integrate system using Euler's method
         if jac_based:
             assert self.nt == u.shape[2] and self.nt+1 == z_t.shape[2] \
             and self.nt+1 == p_t.shape[2] and self.nt+1 == phi_t.shape[2]
             for i in range(self.nt):
                 current_u = u[:, :, i]
-                z = z_t[:,:,i+1]
-                gradPhi = p_t[:,:,i]
-                running_cost = running_cost + self.h * self.compute_lagrangian(ti, z, current_u)
-                cadj = cadj + torch.mean(gradPhi[:,:self.state_dim]  -
-                                        self.h*self.compute_grad_H_z(ti, z, current_u, gradPhi[:,:self.state_dim] ))
+                z_k = z_t[:,:,i+1]
+                p_k = p_t[:, :, i]
+                p_next = p_t[:, :, i + 1]
+                dW_k = dW_t[:, :, i]
+                sigma_k = self.compute_sigma(ti, z_k)
+                L_k = self.compute_lagrangian(ti, z_k, current_u)
+                running_cost = running_cost + self.h * L_k
+                sigma_dW_k = torch.bmm(sigma_k, dW_k.unsqueeze(-1)).squeeze(-1)
+                value_residual = (phi_t[:, :, i + 1].reshape(batch_size)
+                    - phi_t[:, :, i].reshape(batch_size)+ self.h * L_k
+                    - torch.sum(p_k * sigma_dW_k, dim=1))
+                cHJB = cHJB + self.h * torch.mean(value_residual.square())
 
-                    # double check sign
-                cHJB = cHJB + torch.mean(phi_t[:,:,i] -
-                                    self.h*self.compute_general_H(ti, z, current_u, -gradPhi[:,:self.state_dim]).view(-1,1)) 
-                
-                ti = ti + self.h
+                policy_jacobian = (du_dz_t[:, :, :, i] if du_dz_t is not None else None)
+                adjoint_drift_k, beta_k, details = (
+                    self.compute_necessary_adjoint_terms(
+                        ti,z_k,current_u,p_k,policy_jacobian=policy_jacobian,
+                        include_policy_jacobian=du_dz_t is not None,return_details=True,)
+                )
+                martingale_increment_k = torch.bmm(beta_k, dW_k.unsqueeze(-1)).squeeze(-1)
+                adjoint_residual = (p_next- p_k+ self.h * adjoint_drift_k+ martingale_increment_k)
+                cadj = cadj + self.h * torch.mean(adjoint_residual.square().sum(dim=1))
 
-                # Calculate terminal cost
-            temp_final_cost = self.compute_G(z)
-            terminal_cost = torch.mean(temp_final_cost)
-            gradPhi = p_t[:,:,i+1]
-            z_temp = z.view(batch_size*self.num, -1)
-            z_target_temp = self.z_target.reshape(batch_size*self.num, -1)
-            diff_p = (z_temp[:,:2] - z_target_temp[:,:2]).view(batch_size,-1)
-            G = 0.5*torch.norm(diff_p, dim=1)**2            
-            cadjfin = cadjfin + torch.mean(gradPhi[:,:self.state_dim] - self.compute_grad_G_z(z) )
-            cHJBfin = torch.mean(torch.abs(phi_t[:,:,i+1] - temp_final_cost.view(-1, 1)))
+                H_u_k = details["H_u"]
+                grad_norm = torch.linalg.vector_norm(H_u_k, dim=1)
+                largest_grad_H_u = max(largest_grad_H_u, torch.max(grad_norm).item())
+                avg_grad_H_u += torch.mean(grad_norm).item()
+                ti += self.h
+
+            z = z_t[:, :, -1]
+            terminal_values = self.compute_G(z)
+            terminal_cost = torch.mean(terminal_values)
+            grad_G = self.compute_grad_G_z(z)
+            cadjfin = torch.mean((p_t[:, :, -1] - grad_G).square().sum(dim=1))
+            cHJBfin = torch.mean((phi_t[:, :, -1].reshape(batch_size)- self.alphaG * terminal_values).square())
         
         else:    
             if torch.is_tensor(u):
                 assert self.nt == u.shape[2]
+                z=z0
                 for i in range(self.nt):
                     current_u = u[:, :, i].view(batch_size, self.control_dim)
-                    z = z + self.h * self.compute_f(ti, z, current_u)
                     running_cost = running_cost + self.h * self.compute_lagrangian(ti, z, current_u)
-                    ti = ti + self.h
-                # Calculate terminal cost
-                temp_final_cost = self.compute_G(z)
-                terminal_cost = torch.mean(temp_final_cost)
+                    f_val = self.compute_f(ti, z, current_u)
+                sigma_val = self.compute_sigma(ti, z)
+                dW = self.sample_dW(z, sigma_val)
+                z = z + self.h * f_val + torch.bmm(sigma_val, dW.unsqueeze(-1)).squeeze(-1)
+                ti += self.h
+            terminal_values = self.compute_G(z)
+            terminal_cost = torch.mean(terminal_values)
+    
             elif hasattr(u, 'forward'):
                 for i in range(self.nt):
-                    current_u = u(z, ti, track_all_fp_iters=self.track_all_fp_iters).view(batch_size, self.control_dim)
-                    z = z + self.h * self.compute_f(ti, z, current_u)
-                    running_cost = running_cost + self.h * self.compute_lagrangian(ti, z, current_u)
-                    gradPhi = u.p_net(ti, z, full_grad=True)
-                    cadj = cadj + torch.mean(gradPhi[:,:self.state_dim] -
-                                            self.h*self.compute_grad_H_z(ti, z, current_u, gradPhi[:,:self.state_dim]))
+                    z_k = z
+                    t_k = t_i
+                    current_u = u(z_k, t_k, track_all_fp_iters=self.track_all_fp_iters).view(batch_size, self.control_dim)
+                    running_cost = running_cost + self.h * self.compute_lagrangian(t_k, z_k, current_u)
+                    
                     if hasattr(u.p_net, "getPhi"):
                         # double check sign
                         cHJB = cHJB + torch.mean(u.p_net.getPhi(ti,z) -
