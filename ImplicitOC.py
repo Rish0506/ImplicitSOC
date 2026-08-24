@@ -11,7 +11,7 @@ class ImplicitOC(ABC):
     using implicit methods.
     """
     
-    def __init__(self, state_dim, control_dim, noise_dim, batch_size, tinitial, t_final, nt, 
+    def __init__(self, state_dim, control_dim, noise_dim, batch_size, t_initial, t_final, nt, 
                  alphaL, alphaG,  device='cpu', alphaHJB = [0.0,0.0], alphaadj = [0.0,0.0],
                  track_all_fp_iters = False, pen_pos=False): 
         """
@@ -21,7 +21,7 @@ class ImplicitOC(ABC):
             state_dim (int): Dimension of the state vector
             control_dim (int): Dimension of the control vector
             batch_size (int): Batch size for trajectory optimization
-            tinitial (float): Initial time
+            t_initial (float): Initial time
             t_final (float): Final time
             nt (int): Number of time steps
             device (str): Device to perform computation on ('cpu' or 'cuda')
@@ -30,11 +30,11 @@ class ImplicitOC(ABC):
         self.control_dim = control_dim
         self.batch_size = batch_size
         self.noise_dim = noise_dim
-        self.tinitial = tinitial
+        self.t_initial = t_initial
         self.t_final = t_final
         self.nt = nt
         self.device = device
-        self.h = (t_final - tinitial) / nt
+        self.h = (t_final - t_initial) / nt
         self.pen_pos = pen_pos
 
         self.oc_problem_name = ""
@@ -475,7 +475,7 @@ class ImplicitOC(ABC):
         # Backward loop in time
         for i in range(nt, -1, -1, -1):
             # Provides t_k, z_k, p_k+1
-            ti = self.tinitial + i*self.h
+            ti = self.t_initial + i*self.h
             z_i = z[:,:,i]
             p_ref = p[:,:,i+1]
             # torch.is_tensor vs hasattr(u, forward) selects whether the control is 
@@ -535,7 +535,7 @@ class ImplicitOC(ABC):
         cadj, cadjfin = torch.tensor(0.0, device=z0.device, dtype=z0.dtype), torch.tensor(0.0, device=z0.device, dtype=z0.dtype)
         largest_grad_H_u = -1.0
         avg_grad_H_u = 0.0
-        ti = self.tinitial
+        ti = self.t_initial
         # Integrate system using Euler's method
         if jac_based:
             # verifies tensor dimensions along time axis match discretization steps nt
@@ -738,7 +738,7 @@ class ImplicitOC(ABC):
         largest_grad_H_u = -1.0
         avg_grad_H_u = 0.0
         
-        ti = self.tinitial
+        ti = self.t_initial
         # Integrate system using Euler's method
         if jac_based:
             assert self.nt == u.shape[2] and self.nt+1 == z_t.shape[2] \
@@ -883,13 +883,13 @@ class ImplicitOC(ABC):
         JFB compute_loss with closed-form adjoint check.
         """
         B = z0.shape[0]
-        dt = (self.t_final - self.tinitial) / self.nt
+        dt = (self.t_final - self.t_initial) / self.nt
         running_cost = torch.tensor(0.0, device=z0.device)
         cHJB         = torch.tensor(0.0, device=z0.device)
         cadj         = torch.tensor(0.0, device=z0.device)
         max_grad_u_H = torch.tensor(-1.0, device=z0.device)
         z = z0.clone().requires_grad_(True)
-        t = self.tinitial
+        t = self.t_initial
 
         # Compute Phi0 and its gradient dPhi0 = D_zPhi0
         Phi  = policy.p_net.getPhi(t, z)              # (B,1)
