@@ -4,19 +4,20 @@ plt.ion()
 import numpy as np
 
 
-class GradientTester:
+class StochasticGradientTester:
     """
     A utility class for checking the correctness of gradient implementations
     using finite difference approximations.
+    We need to check df/dz, df/du, dL/dz and dsigma/dz.
     """
     
     @staticmethod
-    def check_grad_f_u(oc_problem, z=None, u=None, t=None, verbose=True):
+    def check_grad_f_u(soc_problem, z=None, u=None, t=None, verbose=True):
         """
         Check the gradient of dynamics with respect to control.
         
         Args:
-            oc_problem: An instance of ImplicitOC
+            soc_problem: An instance of ImplicitSOC
             z (torch.Tensor, optional): State vector
             u (torch.Tensor, optional): Control vector
             t (float, optional): Time
@@ -26,10 +27,10 @@ class GradientTester:
         Returns:
             tuple: (analytical_grad, numerical_grad, relative_error)
         """
-        batch_size = oc_problem.batch_size
-        state_dim = oc_problem.state_dim
-        control_dim = oc_problem.control_dim
-        device = oc_problem.device
+        batch_size = Soc_problem.batch_size
+        state_dim = soc_problem.state_dim
+        control_dim = soc_problem.control_dim
+        device = soc_problem.device
         # Create random vectors if not provided
         if z is None:
             z = torch.randn(batch_size, state_dim, device=device)
@@ -39,12 +40,12 @@ class GradientTester:
             t = 0.0
         
         # Get analytical gradient
-        analytical_grad = oc_problem.compute_grad_f_u(t, z, u)
+        analytical_grad = soc_problem.compute_grad_f_u(t, z, u)
         
         # Create a copy of z that requires gradients
         u_autograd = u.clone().detach().requires_grad_(True)
         
-        autograd_gradf_u = torch.vmap(torch.func.jacrev(oc_problem.compute_f, argnums = 2))(t,z,u_autograd)
+        autograd_gradf_u = torch.vmap(torch.func.jacrev(soc_problem.compute_f, argnums = 2))(t,z,u_autograd)
         
         # Compute error
         error = torch.norm(analytical_grad.permute(0,2,1) - autograd_gradf_u) / (torch.norm(analytical_grad) + 1e-8)
@@ -59,12 +60,12 @@ class GradientTester:
         return analytical_grad, autograd_gradf_u, error
     
     @staticmethod
-    def check_grad_f_z(oc_problem, z=None, u=None, t = None,  verbose=True):
+    def check_grad_f_z(soc_problem, z=None, u=None, t = None,  verbose=True):
         """
         Check the gradient of dynamics with respect to state using PyTorch's autograd.
         
         Args:
-            oc_problem: An instance of ImplicitOC
+            soc_problem: An instance of ImplicitOC
             z (torch.Tensor, optional): State vector
             u (torch.Tensor, optional): Control vector
             t (float, optional): Time
@@ -74,10 +75,10 @@ class GradientTester:
             tuple: (analytical_grad, autograd_grad, relative_error)
         """
         
-        batch_size = oc_problem.batch_size
-        state_dim = oc_problem.state_dim
-        control_dim = oc_problem.control_dim
-        device = oc_problem.device
+        batch_size = soc_problem.batch_size
+        state_dim = soc_problem.state_dim
+        control_dim = soc_problem.control_dim
+        device = soc_problem.device
         # Create random vectors if not provided
         if z is None:
             z = torch.randn(batch_size, state_dim, device=device)
@@ -85,12 +86,12 @@ class GradientTester:
             u = torch.randn(batch_size, control_dim, device=device)
         
         # Get analytical gradient
-        analytical_grad = oc_problem.compute_grad_f_z(t, z, u)
+        analytical_grad = soc_problem.compute_grad_f_z(t, z, u)
         
         # Create a copy of z that requires gradients
         z_autograd = z.clone().detach().requires_grad_(True)
         
-        autograd_gradf_z = torch.vmap(torch.func.jacrev(oc_problem.compute_f, argnums = 1))(t,z_autograd,u)
+        autograd_gradf_z = torch.vmap(torch.func.jacrev(soc_problem.compute_f, argnums = 1))(t,z_autograd,u)
         
         # Compute error
         error = torch.norm(analytical_grad - autograd_gradf_z) / (torch.norm(analytical_grad) + 1e-8)
@@ -105,12 +106,12 @@ class GradientTester:
         return analytical_grad, autograd_gradf_z, error
     
     @staticmethod
-    def check_grad_lagrangian(oc_problem, z=None, u=None, t=None, verbose=True):
+    def check_grad_lagrangian(soc_problem, z=None, u=None, t=None, verbose=True):
         """
         Check the gradient of the Lagrangian with respect to control.
         
         Args:
-            oc_problem: An instance of ImplicitOC
+            soc_problem: An instance of ImplicitOC
             u (torch.Tensor, optional): Control vector
             epsilon (float, optional): Step size for finite difference
             verbose (bool, optional): Whether to print details
@@ -118,10 +119,10 @@ class GradientTester:
         Returns:
             tuple: (analytical_grad, numerical_grad, relative_error)
         """
-        batch_size = oc_problem.batch_size
-        state_dim = oc_problem.state_dim
-        control_dim = oc_problem.control_dim
-        device = oc_problem.device
+        batch_size = soc_problem.batch_size
+        state_dim = soc_problem.state_dim
+        control_dim = soc_problem.control_dim
+        device = soc_problem.device
         # Create random vectors if not provided
         if z is None:
             z = torch.randn(batch_size, state_dim, device=device)
@@ -131,12 +132,12 @@ class GradientTester:
             t = 0.0
         
         # Get analytical gradient
-        analytical_grad = oc_problem.compute_grad_lagrangian(t, z, u)
+        analytical_grad = soc_problem.compute_grad_lagrangian(t, z, u)
         
         # Create a copy of z that requires gradients
         u_autograd = u.clone().detach().requires_grad_(True)
         
-        autograd_gradL_u = torch.vmap(torch.func.jacrev(oc_problem.compute_lagrangian, argnums = 2))(t,z,u_autograd)
+        autograd_gradL_u = torch.vmap(torch.func.jacrev(soc_problem.compute_lagrangian, argnums = 2))(t,z,u_autograd)
         
         # Compute error
         error = torch.norm(analytical_grad - autograd_gradL_u.view(*analytical_grad.shape)) / (torch.norm(analytical_grad) + 1e-8)
@@ -149,6 +150,85 @@ class GradientTester:
             print(f"  Relative error: {error.item()}")
         
         return analytical_grad, autograd_gradL_u, error
+
+    @staticmethod
+    def check_grad_L_z(soc_problem, z=None, u=None, t=None, verbose = True):
+          """
+        Check the gradient of the Lagrangian with respect to control.
+        
+        Args:
+            soc_problem: An instance of ImplicitOC
+            u (torch.Tensor, optional): Control vector
+            epsilon (float, optional): Step size for finite difference
+            verbose (bool, optional): Whether to print details
+            
+        Returns:
+            tuple: (analytical_grad, numerical_grad, relative_error)
+        """
+        batch_size = soc_problem.batch_size
+        state_dim = soc_problem.state_dim
+        control_dim = soc_problem.control_dim
+        device = soc_problem.device
+        # Create random vectors if not provided
+        if z is None:
+            z = torch.randn(batch_size, state_dim, device=device)
+        if u is None:
+            u = torch.randn(batch_size, control_dim, device=device)
+        if t is None:
+            t = 0.0
+        
+        # Get analytical gradient
+        analytical_grad = soc_problem.compute_grad_L_z(t, z, u)
+        
+        # Create a copy of z that requires gradients
+        z_autograd = z.clone().detach().requires_grad_(True)
+        
+        autograd_gradL_z = torch.vmap(torch.func.jacrev(soc_problem.compute_lagrangian, argnums = 1))(t,z_autograd,u)
+        
+        # Compute error
+        error = torch.norm(analytical_grad - autograd_gradL_z.view(*analytical_grad.shape)) / (torch.norm(analytical_grad) + 1e-8)
+        
+        if verbose:
+            print("-" * 40)
+            print(f"Gradient L_z check (autograd):")
+            print(f"  Analytical norm: {torch.norm(analytical_grad).item()}")
+            print(f"  Autograd norm: {torch.norm(autograd_gradL_z).item()}")
+            print(f"  Relative error: {error.item()}")
+        
+        return analytical_grad, autograd_gradL_z, error
+
+    @staticmethod
+    def check_grad_sigma_z(soc_problem, z=None, t=None, verbose = True):
+        batch_size = soc_problem.batch_size
+        state_dim = soc_problem.state_dim
+        noise_dim = soc_problem.noise_dim
+        device = soc_problem.device
+        # Create random vectors if not provided
+        if z is None:
+            z = torch.randn(batch_size, state_dim, device=device)
+        if t is None:
+            t = 0.0
+
+        analytical_grad = soc_problem.compute_grad_sigma_z(t,z)
+        z_autograd = z.clone().detach().requires_grad_(True)
+        autograd_grad_sigma_z = torch.vmap(torch.func.jacrev(soc_problem.compute_sigma, argnums=1)(t,z_autograd)
+        error = torch.norm(analytical_grad - autograd_grad_sigma_z.view(*analytical_grad.shape))/(torch.norm(analytical_grad) + 1e-8)
+        if verbose:
+            print("-" * 40)
+            print(f"Gradient sigma_z check (autograd):")
+            print(f"  Analytical norm: {torch.norm(analytical_grad).item()}")
+            print(f"  Autograd norm: {torch.norm(autograd_grad_sigma_z).item()}")
+            print(f"  Relative error: {error.item()}")
+        
+        return analytical_grad, autograd_gradL_z, error
+
+    
+        
+
+        
+
+
+    
 
     
     @staticmethod
