@@ -425,7 +425,7 @@ class ImplicitOC(ABC):
         cadj, cadjfin = torch.tensor(0.0, device=z0.device, dtype=z0.dtype), torch.tensor(0.0, device=z0.device, dtype=z0.dtype)
         largest_grad_H_u = -1.0
         avg_grad_H_u = 0.0
-        ti = self.t_initial
+        t_i = self.t_initial
         # Integrate system using Euler's method
         if jac_based:
             # verifies tensor dimensions along time axis match discretization steps nt
@@ -437,14 +437,9 @@ class ImplicitOC(ABC):
                 # first extracts the given data u_i, z_{i+1}, p_i, p_{i+1}, Delta W_i
                 current_u = u[:, :, i]
                 z = z_t[:,:,i+1]
-                p = p_t[:,:,i]
-                p_next = p_t[:,:,i+1]
-                dW_k = dW_t[:,:,i]
-                
-                # compute sigma(ti, z_i+1)
-                sigma_k = self.compute_sigma(ti,z_k)
+                gradPhi = p_t[:,:,i]
                 # cost L(ti, z_{i+1},u_i)
-                L_k = self.compute_lagrangian(ti, z_k, current_u)
+                L = self.compute_lagrangian(t_i, z, current_u)
                 # Accumulates step cost multiplied by h.
                 running_cost = running_cost + self.h * L_k
 
