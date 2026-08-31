@@ -425,6 +425,7 @@ class ImplicitOC(ABC):
         cadj, cadjfin = torch.tensor(0.0, device=z0.device, dtype=z0.dtype), torch.tensor(0.0, device=z0.device, dtype=z0.dtype)
         largest_grad_H_u = -1.0
         avg_grad_H_u = 0.0
+        Identity = torch.eye(self.state_dim,device=z0.device,dtype=z0.dtype,).unsqueeze(0).expand(batch_size, -1, -1)
         t_i = self.t_initial
         # Integrate system using Euler's method
         if jac_based:
@@ -435,52 +436,31 @@ class ImplicitOC(ABC):
             # loop over time index i = 0, 1,..., n1-1
             for i in range(self.nt):
                 # first extracts the given data u_i, z_{i+1}, p_i, p_{i+1}, Delta W_i
+                t_i = self.t_initial + i*self.h
                 current_u = u[:, :, i]
-                z = z_t[:,:,i+1]
-                gradPhi = p_t[:,:,i]
+                z_i = z_t[:,:,i+1]
+                p_i = p_t[:,:,i]
+                p_next = p_t[:,:,i+1]
+                dW_i = dW_t[:,:,i]
                 # cost L(ti, z_{i+1},u_i)
-                L = self.compute_lagrangian(t_i, z, current_u)
+                L_i = self.compute_lagrangian(t_i, z_i, current_u)
                 # Accumulates step cost multiplied by h.
-                running_cost = running_cost + self.h * L_k
-
-                """Use of Ito formula gives us the expression for dV where V(t,z_t)"""
-                # Gives sigma(ti, z_k) \Delta W_i 
-                sigma_dW_k = torch.bmm(sigma_k, dW_k.unsqueeze(-1)).squeeze(-1)
-                # V_i+1 - V_i + h.L_i - p_i^T(sigma_i \Delt w_i)
-                value_residual = (phi_t[:,:,i+1].reshape(batch_size)-phi_t[:,:,i].reshape(batch_size)
-                                 + self.h * L_k - torch.sum(p_k * sigma_dW_k, dim = 1))
-                # Accumulate 
-                cHJB = cHJB + self.h * torch.mean(value_residual.square())
-                
-                # D_z u at step i
-                policy_jacobian = policy_jacobian = ( du_dz_t[:, :, :, i]
-                    if du_dz_t is not None else None
-                )
-                
-                # recalling terms in adjoint calculation
-                ajoint_drift_k, beta_k, details = (
-                    self.compute_necessary_adjoint_terms(
-                        ti, z_k, current_u, p_k, policy_jacobian=policy_jacobian
-                        include_policy_jacobian = du_dz_t is not None, return_details = True,
-                    )
-                )
-                martingale_increment_k = torch.bmm(beta_k, dW_k.unsqueeze(-1)).squeeze(-1)
-                # residual for adjoint
-                adjoint_residual = (p_next-p_k + self.h * adjoint_drift_k + martingale_increment_k)
+                running_cost = running_cost + self.h * L_i
+                L_z_i = self.compute_grad_L_z(t_i, z_i, current_u)
+                f_z_i = self.compute_grad_f_z(t_i, z_i, current_u)
+                sigma_z = self.compute_grad_sigma_z(t_i, z_i)
+                sigma_z_dW_i = torch.einsum(sigma_z, dW_i)
+                p_target = (self.h*L_z_i + torch.bmm((Identity + self.h*f_z_i+sigma_z_dW_i).transpose(1,2), p_next.unsqueeze(-1)).squeeze(-1)
+                adjoint_residual = p_i - p_target
                 cadj = cadj + self.h * torch.mean(adjoint_residual.square().sum(dim=1))
-
-                # Optimality analysis
-                # H_u means nabla_z H(ti,z_i, u_i,p_i)
-                H_u_k = details["H_u"]
-                # \|nabla_u H\|_2
-                grad_norm = torch.linalg.vector_norm(H_u_k, dim=1)
-                # this tracks max norm and sum_i E[\|nabla_u H\|_2]
-                largest_grad_H_u = max(largest_grad_H_u, torch.max(grad_norm).item())
-                avg_grad_H_u += torch.mean(grad_norm).item()
-                ti += self.h
+                V_i = phi_t[:, :, i].reshape(batch_size, -1)[:, 0]
+                V_next = phi_t[:, :, i + 1].reshape(batch_size, -1)[:, 0]
+                diffusion_term_i = self.compute_diffusion_term(t_i,z_i, phi_net)
+                hjb_residual = ((V_next - V_i) / self.h + torch.sum(V_z * f_i, dim=1)+ diffusion_term + L_i )
+                # Accumulate 
+                cHJB = cHJB + self.h * torch.mean(hjb_residual.square())
                 
             # Calculate terminal cost
-            
             z = z_t[:,:,-1] # z(T)
             terminal_values = self.compute_G(z)  # G(z_T)
             terminal_cost = torch.mean(terminal_values) # E[G(z_T)]
@@ -496,12 +476,12 @@ class ImplicitOC(ABC):
             # time loop 
             for i in range(self.nt):
                 current_u = u[:, :, i].view(batch_size, self.control_dim)
-                running_cost = running_cost + self.h * self.compute_lagrangian(ti, z, current_u)
-                f_val = self.compute_f(ti, z, current_u)
-                sigma_val = self.compute_sigma(ti, z)
+                running_cost = running_cost + self.h * self.compute_lagrangian(t_i, z, current_u)
+                f_val = self.compute_f(t_i, z, current_u)
+                sigma_val = self.compute_sigma(t_i, z)
                 dW = self.sample_dW(z, sigma_val)
                 z = z + self.h * f_val + torch.bmm(sigma_val, dW.unsqueeze(-1)).squeeze(-1)
-                ti += self.h
+                t_i = t_i + self.h
 
             terminal_values = self.compute_G(z)
             terminal_cost = torch.mean(terminal_values)
@@ -513,46 +493,48 @@ class ImplicitOC(ABC):
             is_direct_control = getattr(u, 'is_direct_control', False)
             # loop in time i = 0, 1,2, ..., nt-1
             for i in range(self.nt):
-                z_k = z
-                t_k = ti
-                # computes u_k = pi_{\theta}(z_k,t_k)
-                current_u = u(z_k, t_k, track_all_fp_iters=self.track_all_fp_iters).view(batch_size, self.control_dim)
-                running_cost = running_cost + self.h * self.compute_lagrangian(t_k, z_k, current_u)
-                f_val = self.compute_f(t_k,z_k, current_u)
-                sigma_val = self.compute_sigma(t_k,z_k)
+                z_i = z
+                t_i = t_i
+                # computes u_i = pi_{\theta}(z_i,t_i)
+                current_u = u(z_i, t_i, track_all_fp_iters=self.track_all_fp_iters).view(batch_size, self.control_dim)
+                running_cost = running_cost + self.h * self.compute_lagrangian(t_i, z_i, current_u)
+                f_i = self.compute_f(t_i,z_i, current_u)
+                sigma_i = self.compute_sigma(t_i,z_i)
 
                 # Only compute HJB and adjoint for implicit control methods
                 if not is_direct_control:
-                    # extract p_k \nabla_z V(t_k, z_k) 
-                    gradPhi_k = u.p_net(t_k, z_k, full_grad=True)
-                    p_k = gradPhi_k[:, :self.state_dim]
-                    H_val = self.compute_general_H(t_k, z_k, current_u, p_k)
-                    diffusion_term = self.compute_diffusion_term(
-                        t_k, z_k, u.p_net,sigma=sigma_val,)
-                    # V_t - H(t,z,u,V_z) - 1/2Tr(sigma sigma^T V_zz)
-                    hjb_residual = ( gradPhi_k[:, -1] - H_val - diffusion_term)
-                    cHJB = cHJB + self.h * torch.mean(hjb_residual.square())
+                    # extract p_i \nabla_z V(t_i, z_i) 
+                    gradPhi_i = u.p_net(t_i, z_i, full_grad=True)
+                    p_i = gradPhi_i[:, :self.state_dim]
 
-                    adjoint_drift_k, beta_k, details = (
-                        self.compute_necessary_adjoint_terms(
-                            t_k,z_k,current_u,p_k,include_policy_jacobian=True,
-                            return_details=True,
-                        )
-                    )
-                    H_u_k = details["H_u"]
-                    grad_norm = torch.linalg.vector_norm(H_u_k, dim=1)
-                    largest_grad_H_u = max(largest_grad_H_u, torch.max(grad_norm).item(),)
-                    avg_grad_H_u += torch.mean(grad_norm).item()
+                    if hasattr(u.p_net, "getPhi"):
+                        H_i = self.compute_general_H(t_i, z_i, current_u, p_i)
+                        diffusion_term_i = self.compute_diffusion_term(t_i, z_i, u.p_net,sigma=sigma_val_i,)
+                        # -V_t - H(t,z,u,V_z) - 1/2Tr(sigma sigma^T V_zz)
+                        hjb_residual = (gradPhi_i[:, -1] - H_val - diffusion_term)
+                        cHJB = cHJB + self.h * torch.mean(hjb_residual.square())
+                        
+                    grad_H_u = self.compute_grad_H_u(t_i, z_i, current_u, p_i)
+                    max_norm_grad_H_u = torch.max(torch.linalg.vector_norm(grad_H_u, ord=2, dim=1)).item()
+                    avg_grad_H_u += torch.mean(torch.linalg.vector_norm(grad_H_u, ord=2, dim=1)).item()
+                    if max_norm_grad_H_u > largest_grad_H_u:
+                    largest_grad_H_u = max_norm_grad_H_u
+                    
 
-                dW = self.sample_dW(z_k, sigma_val)
-                z_next = z_k + self.h * f_val + torch.bmm(sigma_val, dW.unsqueeze(-1)).squeeze(-1)
-                t_next = t_k + self.h
+                dW_i = self.sample_dW(z_i, sigma_i)
+                z_next = z_i + self.h * f_i + torch.bmm(sigma_i, dW_i.unsqueeze(-1)).squeeze(-1)
+                t_next = t_i + self.h
                 
                 if not is_direct_control:
                     p_next = u.p_net(t_next, z_next, full_grad=True)[:, :self.state_dim]
-                    martingale_increment = torch.bmm(beta_k, dW.unsqueeze(-1)).squeeze(-1)
-                    adjoint_residual = (p_next- p_k+ self.h * adjoint_drift_k+ martingale_increment)
+                    L_z_i = self.compute_grad_L_z(t_i, z_i, current_u)
+                    f_z_i = self.compute_grad_f_z(t_i, z_i, current_u)
+                    sigma_z = self.compute_grad_sigma_z(t_i, z_i)
+                    sigma_z_dW_i = torch.einsum(sigma_z, dW_i)
+                    p_target = (self.h*L_z_i + torch.bmm((Identity + self.h*f_z_i+sigma_z_dW_i).transpose(1,2), p_next.unsqueeze(-1)).squeeze(-1)
+                    adjoint_residual = p_i - p_target
                     cadj = cadj + self.h * torch.mean(adjoint_residual.square().sum(dim=1))
+                    
 
                 z = z_next
                 ti = t_next
@@ -563,7 +545,7 @@ class ImplicitOC(ABC):
 
             # Only compute terminal HJB and adjoint for implicit control methods
             if not is_direct_control:
-                gradPhi_T = u.p_net(ti, z, full_grad=True)
+                gradPhi_T = u.p_net(t_i, z, full_grad=True)
                 p_T = gradPhi_T[:, :self.state_dim]
                 grad_G = self.compute_grad_G_z(z)
                 if self.pen_pos:
