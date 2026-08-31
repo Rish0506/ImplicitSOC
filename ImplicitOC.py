@@ -325,11 +325,8 @@ class ImplicitOC(ABC):
             )
         noise_dim = sigma.shape[-1] 
         # Delta W = sqrt(h) \xi where \xi \in N(0,I)
-        return torch.sqrt(
-            torch.as_tensor(self.h, device=z.device, dtype=z.dtype)
-        ) * torch.randn(
-            z.shape[0], noise_dim, device=z.device, dtype=z.dtype
-        )
+        return torch.sqrt(torch.as_tensor(self.h, device=z.device, dtype=z.dtype)
+        ) * torch.randn(z.shape[0], noise_dim, device=z.device, dtype=z.dtype)
 
     def compute_diffusion_term(self, t, z, phi_net):
         """
@@ -476,11 +473,11 @@ class ImplicitOC(ABC):
             # time loop 
             for i in range(self.nt):
                 current_u = u[:, :, i].view(batch_size, self.control_dim)
+                f_i = self.compute_f(t_i, z, current_u)
+                sigma_i = self.compute_sigma(t_i, z)
+                dW_i = self.sample_dW(z, sigma_i)
+                z = z + self.h * f_i + torch.bmm(sigma_i, dW_i.unsqueeze(-1)).squeeze(-1)
                 running_cost = running_cost + self.h * self.compute_lagrangian(t_i, z, current_u)
-                f_val = self.compute_f(t_i, z, current_u)
-                sigma_val = self.compute_sigma(t_i, z)
-                dW = self.sample_dW(z, sigma_val)
-                z = z + self.h * f_val + torch.bmm(sigma_val, dW.unsqueeze(-1)).squeeze(-1)
                 t_i = t_i + self.h
 
             terminal_values = self.compute_G(z)
@@ -493,13 +490,13 @@ class ImplicitOC(ABC):
             is_direct_control = getattr(u, 'is_direct_control', False)
             # loop in time i = 0, 1,2, ..., nt-1
             for i in range(self.nt):
-                z_i = z
                 t_i = t_i
-                # computes u_i = pi_{\theta}(z_i,t_i)
                 current_u = u(z_i, t_i, track_all_fp_iters=self.track_all_fp_iters).view(batch_size, self.control_dim)
+                f_i = self.compute_f(t_i, z, current_u)
+                sigma_i = self.compute_sigma(t_i, z)
+                dW_i = self.sample_dW(z, sigma_i)
+                z = z + self.h * f_i + torch.bmm(sigma_i, dW_i.unsqueeze(-1)).squeeze(-1)
                 running_cost = running_cost + self.h * self.compute_lagrangian(t_i, z_i, current_u)
-                f_i = self.compute_f(t_i,z_i, current_u)
-                sigma_i = self.compute_sigma(t_i,z_i)
 
                 # Only compute HJB and adjoint for implicit control methods
                 if not is_direct_control:
