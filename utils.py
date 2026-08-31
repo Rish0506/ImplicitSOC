@@ -45,19 +45,19 @@ class StochasticGradientTester:
         # Create a copy of z that requires gradients
         u_autograd = u.clone().detach().requires_grad_(True)
         
-        autograd_gradf_u = torch.vmap(torch.func.jacrev(soc_problem.compute_f, argnums = 2))(t,z,u_autograd)
+        autograd_grad_f_u = torch.vmap(torch.func.jacrev(soc_problem.compute_f, argnums = 2))(t,z,u_autograd)
         
         # Compute error
-        error = torch.norm(analytical_grad.permute(0,2,1) - autograd_gradf_u) / (torch.norm(analytical_grad) + 1e-8)
+        error = torch.norm(analytical_grad.permute(0,2,1) - autograd_grad_f_u) / (torch.norm(analytical_grad) + 1e-8)
         
         if verbose:
             print("-" * 40)
             print(f"Gradient f_u check (autograd):")
             print(f"  Analytical norm: {torch.norm(analytical_grad).item()}")
-            print(f"  Autograd norm: {torch.norm(autograd_gradf_u).item()}")
+            print(f"  Autograd norm: {torch.norm(autograd_grad_f_u).item()}")
             print(f"  Relative error: {error.item()}")
         
-        return analytical_grad, autograd_gradf_u, error
+        return analytical_grad, autograd_grad_f_u, error
     
     @staticmethod
     def check_grad_f_z(soc_problem, z=None, u=None, t = None,  verbose=True):
@@ -198,7 +198,7 @@ class StochasticGradientTester:
         return analytical_grad, autograd_grad_L_z, error
 
     @staticmethod
-    def check_grad_sigma_z(soc_problem, z=None, t=None, u=None, verbose = True):
+    def check_grad_sigma_z(soc_problem, z=None, t=None, verbose = True):
         batch_size = soc_problem.batch_size
         state_dim = soc_problem.state_dim
         noise_dim = soc_problem.noise_dim
@@ -206,14 +206,12 @@ class StochasticGradientTester:
         # Create random vectors if not provided
         if z is None:
             z = torch.randn(batch_size, state_dim, device=device)
-        if u is None:
-            u = torch.randn(batch_size, control_dim, device=device)
         if t is None:
             t = 0.0
 
         analytical_grad = soc_problem.compute_grad_sigma_z(t,z)
         z_autograd = z.clone().detach().requires_grad_(True)
-        autograd_grad_sigma_z = torch.vmap(torch.func.jacrev(soc_problem.compute_sigma, argnums=1)(t,z_autograd)
+        autograd_grad_sigma_z = torch.vmap(torch.func.jacrev(soc_problem.compute_sigma, argnums=1))(t,z_autograd)
         error = torch.norm(analytical_grad - autograd_grad_sigma_z.view(*analytical_grad.shape))/(torch.norm(analytical_grad) + 1e-8)
         if verbose:
             print("-" * 40)
@@ -225,20 +223,18 @@ class StochasticGradientTester:
         return analytical_grad, autograd_grad_sigma_z, error
 
     @staticmethod
-    def check_grad_G_z(soc_problem, z=None, u=None, t=None, verbose = True):
+    def check_grad_G_z(soc_problem, z=None, t=None, verbose = True):
         batch_size = soc_problem.batch_size
         state_dim = soc_problem.state_dim
         noise_dim = soc_problem.noise_dim
         device = soc_problem.device
         if z is None:
             z = torch.randn(batch_size, state_dim, device=device)
-        if u is None:
-            u = torch.randn(batch_size, control_dim, device=device)
         if t is None:
             t = 0.0
         analytical_grad = soc_problem.compute_grad_G_z(t,z)
         z_autograd = z.clone().detach().requires_grad_(True)
-        autograd_grad_G_z = torch.vmap(torch.func.jacrev(soc_problem.compute_G, argnums=1)(t,z_autograd)
+        autograd_grad_G_z = torch.vmap(torch.func.jacrev(soc_problem.compute_G, argnums=1))(t,z_autograd)
         error = torch.norm(analytical_grad - autograd_grad_G_z.view(*analytical_grad.shape))/(torch.norm(analytical_grad) + 1e-8)
         if verbose:
             print("-" * 40)
