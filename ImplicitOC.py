@@ -74,6 +74,37 @@ class ImplicitOC(ABC):
             torch.Tensor: Gradient of Lagrangian of shape (batch_size, control_dim)
         """
         pass
+
+    @abstractmethod
+    def compute_grad_L_z(self, t, z, u):
+        """
+        [NEW] Compute the gradient of the Lagrangian with respect to state.
+ 
+        This is the source term in the stochastic adjoint recursion:
+            p_n = dt * dL/dz_n  +  (...)^T * p_{n+1}
+ 
+        Args:
+            t (torch.Tensor or float): Current time
+            z (torch.Tensor): State vector of shape (batch_size, state_dim)
+            u (torch.Tensor): Control input of shape (batch_size, control_dim)
+ 
+        Returns:
+            torch.Tensor: Gradient of Lagrangian w.r.t. z of shape (batch_size, state_dim)
+        """
+        pass
+
+    @abstractmethod
+    def compute_G(self, z):
+        """
+        Compute the terminal cost.
+        
+        Args:
+            z (torch.Tensor): State vector of shape (batch_size, state_dim)
+            
+        Returns:
+            torch.Tensor: Terminal cost values of shape (batch_size,)
+        """
+        pass
         
     @abstractmethod
     def compute_sigma(self, t, z):
@@ -90,18 +121,6 @@ class ImplicitOC(ABC):
         """
         pass
         
-    @abstractmethod
-    def compute_G(self, z):
-        """
-        Compute the terminal cost.
-        
-        Args:
-            z (torch.Tensor): State vector of shape (batch_size, state_dim)
-            
-        Returns:
-            torch.Tensor: Terminal cost values of shape (batch_size,)
-        """
-        pass
     
     @abstractmethod
     def compute_f(self, t, z, u):
@@ -147,7 +166,24 @@ class ImplicitOC(ABC):
             torch.Tensor: Gradient of f w.r.t. z of shape (batch_size, state_dim, state_dim)
         """
         pass
-    
+
+    @abstractmethod
+    def compute_grad_sigma_z(self, t, z):
+        """
+        [NEW] Compute the gradient of sigma with respect to state.
+ 
+        Used in the stochastic adjoint Jacobian:
+            (dsigma/dz * dW)_{ij} = sum_k  [d sigma_{ik} / d z_j] * dW_k
+ 
+        Args:
+            t (torch.Tensor or float): Current time
+            z (torch.Tensor): State vector of shape (batch_size, state_dim)
+ 
+        Returns:
+            torch.Tensor: d sigma / d z of shape (batch_size, state_dim, noise_dim, state_dim)
+        """
+        pass
+
     @abstractmethod
     def compute_grad_G_z(self, t, z, u):
         """
@@ -188,6 +224,87 @@ class ImplicitOC(ABC):
         H_val = L_val + inner_product
         
         return H_val
+
+    def compute_grad_H_u(self, t, z, u, p):
+        """
+        Compute the gradient of the Hamiltonian with respect to control.
+        
+        Args:
+            t (torch.Tensor or float): Current time
+            z (torch.Tensor): State vector of shape (batch_size, state_dim)
+            u (torch.Tensor): Control input of shape (batch_size, control_dim)
+            p (torch.Tensor): Costate vector of shape (batch_size, state_dim)
+            
+        Returns:
+            torch.Tensor: Gradient of H w.r.t. u of shape (batch_size, control_dim)
+        """
+
+        batch_size = z.shape[0]
+        
+        # Compute gradient of Lagrangian
+        grad_term1 = self.compute_grad_lagrangian(t, z, u)
+        
+        # Compute gradient of dynamics
+        grad_f_u_term = self.compute_grad_f_u(t, z, u)
+        
+        # Compute gradient of p^T f w.r.t. u
+        p = p.unsqueeze(-1)  # Shape: (batch_size, state_dim, 1)
+        grad_term2 = torch.bmm(grad_f_u_term, p).view(batch_size, self.control_dim)
+        
+        # Compute total gradient
+        grad_H_u_val = grad_term1 + grad_term2
+        
+        return grad_H_u_val
+
+    def compute_grad_H_u_(self, t, z, u, p, grad_f_u_term):
+        """
+        Compute the non-batch gradient of the Hamiltonian with respect to control.
+
+        Args:
+            t (torch.Tensor or float): Current time
+            z (torch.Tensor): State vector of shape (state_dim,)
+            u (torch.Tensor): Control input of shape (control_dim,)
+            p (torch.Tensor): Costate vector of shape (state_dim,)
+            grad_f_u_term: gradient of f with respect to u of shape (control_dim, state_dim)
+
+        Returns:
+            torch.Tensor: Gradient of H w.r.t. u of shape (control_dim,)
+        """
+        """ Compute gradient of Lagrangian """
+        grad_term1 = -1.0*self.compute_grad_lagrangian_(t, z, u)
+
+        """ Compute gradient of dynamics """
+        grad_f_u_term = -1.0*self.compute_grad_f_u_(z, u, grad_f_u_term)
+
+        """ Compute gradient of p^T f w.r.t. u """
+        grad_term2 = torch.matmul(grad_f_u_term, p)
+
+        """ Compute total gradient """
+        grad_H_u_val = grad_term1 + grad_term2
+
+        return grad_H_u_val
+
+    def compute_grad_H_z(self, t, z, u, p)
+     """
+        Compute the gradient of the Hamiltonian with respect to state.
+ 
+        Args:
+            t (torch.Tensor or float): Current time
+            z (torch.Tensor): State vector of shape (batch_size, state_dim)
+            u (torch.Tensor): Control input of shape (batch_size, control_dim)
+            p (torch.Tensor): Costate vector of shape (batch_size, state_dim)
+ 
+        Returns:
+            torch.Tensor: Gradient of H w.r.t. z of shape (batch_size, state_dim)
+        """
+        batch_size = z.shape[0]
+        # Compute gradient of dynamics w.r.t. state
+        grad_H_z_term = self.compute_grad_L_z(t, z, u)
+        grad_f_z_term = self.compute_grad_f_z(t, z, u)
+        # Compute gradient of p^T f w.r.t. z
+        p = p.unsqueeze(-1)  # Shape: (batch_size, state_dim, 1)
+        output = grad_H_z_term + torch.bmm(grad_f_z_term, p).view(batch_size, self.state_dim)
+        return output
 
     def sample_dW(self, z, sigma):
         """
@@ -260,257 +377,31 @@ class ImplicitOC(ABC):
         )
 
         return 0.5 * diffusion_term
-        
-        
-    def compute_grad_H_u(self, t, z, u, p):
-        """
-        Compute the gradient of the Hamiltonian with respect to control.
-        
-        Args:
-            t (torch.Tensor or float): Current time
-            z (torch.Tensor): State vector of shape (batch_size, state_dim)
-            u (torch.Tensor): Control input of shape (batch_size, control_dim)
-            p (torch.Tensor): Costate vector of shape (batch_size, state_dim)
-            
-        Returns:
-            torch.Tensor: Gradient of H w.r.t. u of shape (batch_size, control_dim)
-        """
-
-        batch_size = z.shape[0]
-        
-        # Compute gradient of Lagrangian
-        grad_term1 = self.compute_grad_lagrangian(t, z, u)
-        
-        # Compute gradient of dynamics
-        grad_f_u_term = self.compute_grad_f_u(t, z, u)
-        
-        # Compute gradient of p^T f w.r.t. u
-        p = p.unsqueeze(-1)  # Shape: (batch_size, state_dim, 1)
-        grad_term2 = torch.bmm(grad_f_u_term, p).view(batch_size, self.control_dim)
-        
-        # Compute total gradient
-        grad_H_u_val = grad_term1 + grad_term2
-        
-        return grad_H_u_val
-
-    def compute_grad_H_u_(self, t, z, u, p, grad_f_u_term):
-        """
-        Compute the non-batch gradient of the Hamiltonian with respect to control.
-
-        Args:
-            t (torch.Tensor or float): Current time
-            z (torch.Tensor): State vector of shape (state_dim,)
-            u (torch.Tensor): Control input of shape (control_dim,)
-            p (torch.Tensor): Costate vector of shape (state_dim,)
-            grad_f_u_term: gradient of f with respect to u of shape (control_dim, state_dim)
-
-        Returns:
-            torch.Tensor: Gradient of H w.r.t. u of shape (control_dim,)
-        """
-        """ Compute gradient of Lagrangian """
-        grad_term1 = -1.0*self.compute_grad_lagrangian_(t, z, u)
-
-        """ Compute gradient of dynamics """
-        grad_f_u_term = -1.0*self.compute_grad_f_u_(z, u, grad_f_u_term)
-
-        """ Compute gradient of p^T f w.r.t. u """
-        grad_term2 = torch.matmul(grad_f_u_term, p)
-
-        """ Compute total gradient """
-        grad_H_u_val = grad_term1 + grad_term2
-
-        return grad_H_u_val
-
-    def compute_adjoint_terms(self, t, z, u, p, policy_jacobian = None, 
-                              include_policy_jacobian = True, return_details = False,):
-        """
-        dp = -A ds - sum_i beta_i dW^(i) where 
-        A = L_z + f_z^T p + (D_z u)^T [L_u + f_u^T p + c_sigma],
-        beta_i = (D_z sigma^(i))^T p, 
-        c_sigma = sum_i (D_z sigma^(i))^T beta_i 
-
-        Args:
-            t : Current time.
-            z : Current state, shape(batch_size, state_dim)
-            u : Current control, shape (batch_size, control_dim)
-            p : Current adjoint/value gradient, shape (batch_size, state_dim)
-            
-        Returns: 
-            adjoint_drift : A, shape (batch_size, state_dim)
-            adjoint_diffusion: beta, shape(batch_size, state_dim, noise_dim).
-            returned only when return_details = True.
-        """
-        # dimension check
-        batch_size = z.shape[0]
-        if z.shape != (batch_size, self.state_dim):
-            raise ValueError("z must have shape (batch_size, state_dim).")
-        if u.shape != (batch_size, self.control_dim):
-            raise ValueError("u must have shape (batch_size, control_dim).")
-        if p.shape != (batch_size, self.state_dim):
-            raise ValueError("p must have shape (batch_size, state_dim).")
-        """
-        u and p are held fixed while differentiating L,f and sigma in z.
-        # clone() creates a separate computational graph node for partial differentiation
-        """
-
-        z_partial = z.clone().requires_grad_(True)
-        # 1) L_z
-        L_value = self.compute_lagrangian(t, z_partial, u)
-        L_value = L_value.reshape(batch_size, -1).sum(dim=1)
-        L_value = L_value + 0.0*z_partial.sum(dim=1) 
-        L_z = torch.autograd.grad(
-            L_value.sum(),z_partial, create_graph=True, retain_graph=True
-        )[0]
-
-        """ 2) f_z^T p """
-
-        grad_f_z = self.compute_grad_f_z(t,z,u)
-        # dimension check
-        if sigma.shape != (batch_size, self.state_dim, self.noise_dim):
-            raise ValueError(
-                "compute_sigma(t, z) must return shape "
-                "(batch_size, state_dim, noise_dim)."
-            )
-        # matrix vector multiplication (unsqueeze :(n,m,1), squeeze (n,m))
-        f_z_T_p = torch.bmm(grad_f_z, p.unsqueeze(-1)).squeeze(-1)
-
-        """ 3) Diffusion term beta_i and c_sigma """
-        sigma = self.compute_sigma(t,z_partial)
-        # dimension check
-        if sigma.shape != (batch_size, self.state_dim, self.noise_dim):
-            raise ValueError(
-                "compute_sigma(t, z) must return shape "
-                "(batch_size, state_dim, noise_dim)."
-            )
-        # initialization
-        beta_columns = []
-        sigma_correction = torch.zeros_like(z_partial)
-
-        for i in range(self.noise_dim):
-            sigma_i = sigma[:,:,i] + 0.0* z_partial
-            beta_i = torch.autograd.grad(
-                sigma_i,z_partial, grad_outputs = p, create_graph = True, retain_graph = True,
-            )[0]
-            sigma_correction_i = torch.autograd.grad(
-                sigma_i, z_partial, grad_outputs=beta_i, create_graph = True, retain_graph = True,
-            )[0]
-            beta_columns.append(beta_i)
-            sigma_correction = sigma_correction + sigma_correction_i
-        # Full beta matrix means (D_z sigma)^T p
-        adjoint_diffusion = torch.stack(beta_columns, dim=2)
-
-        """ 4) L_u + f_u^T p, sigma does not depend on u."""
-        H_u = self.compute_grad_H_u(t,z,u,p)
-                                  
-        # dimension check
-        if H_u.shape != sigma_correction.shape:
-            raise ValueError(
-                "The supplied adjoint equation adds the sigma_z correction "
-                "to L_u + f_u^T p.  H_u has control_dim components while "
-                "the displayed sigma_z correction has state_dim components. "
-                "The equation as written therefore requires "
-                "control_dim == state_dim."
-            )
-        policy_vector = H_u +sigma_correction
-
-        """ 5) (D_z u)^T (L_u + f_u^T p + sigma_correction) """
-        if include_policy_jacobian:
-            if policy_jacobian is not None
-                policy_term = torch.bmm(policy_jacobian.transpose(1,2), policy_vector.unsqueeze(-1),
-                ).squeeze(-1)
-            else:
-                # if not given explicity, it used autograd which gives (D_z u)^T policy_vector
-                # Allow unused in case u doesn't depend on z)
-                policy_term = torch.autograd.grad(u,z,grad_outputs=policy_vector, 
-                                    create_graph = True, retain_graph = True, allow_unused = True,
-                )[0]
-                if policy_term is None:
-                    policy_term = torch.zeros_like(z)
-        else:
-            policy_term = torch.zeros_like(z)
-
-        """Complete dt coefficient A from the adjoint equation """"
-        adjoint_drift = L_z + f_z_T_p + policy_term 
-
-        if return_details:
-            details={"L_z": L_z,"f_z_T_p": f_z_T_p,"H_u": H_u,"sigma_z_T_p": adjoint_diffusion,
-                "sigma_correction": sigma_correction,"policy_vector": policy_vector,
-                "policy_term": policy_term,
-            }
-            return adjoint_drift, adjoint_diffusion, details
-            
-        return adjoint_drift, adjoint_diffusion
 
     def solve_adjoint_eq(self, z, u, dW=None, du_dz=None):
         """
-        Solve dp = -A ds -beta dW with terminal condition p(T)=G_z(z(T))
-        In discrete form we have p_{k+1}-p_k = -h A_k + beta_k dW_k,
-        which can be rearranged as 
-        p_k = p_{k+1}+hA_k + veta_k dW_k 
+        solve p_k = \Delta t L_z +(I+ Delta t f_z + sigma_z dW)^T p_{k+1}
         """
-        # check the availability of dW
-        if dW is None:
-            raise ValueError(
-                "The stochastic adjoint solver requires the Brownian "
-                "increments used to generate the state trajectory."
-            )
         batch_size = z.shape[0]
-        nt = z.shape[2]-1
-        ## Quick dimension check
-        if z.shape[1] != self.state_dim:
-            raise ValueError("z has the wrong state dimension.")
-        if dW.shape != (batch_size, self.noise_dim, nt):
-            raise ValueError ("dW must have shape (batch_size, self.noise_dim, nt")
-        if du_dz is None and du_dz.shape != (
-            batch_size, self.control_dim, self.state_dim, nt
-        ):
-            raise ValueError(
-                "du_dz mush have shape (batch_size, control_dim, state_dim, nt)."
-            )
-        # initialization
-        p = torch.zeros(batch_size, self.state_dim, nt+1, device=z.device, dtype=z.dtype,)
+        nt = z.shape[2] - 1
+        p = torch.zeros(batch_size, self.state_dim, nt+1, device=z.devide, dtype = z.dtype)
         p[:,:,-1] = self.compute_grad_G_z(z[:,:,-1])
-        
-        # Backward loop in time
+        I = torch.eye(self.state_dim, device = z.device, dtype = z.dtype).unsqueeze(0)
         for i in range(nt, -1, -1, -1):
-            # Provides t_k, z_k, p_k+1
-            ti = self.t_initial + i*self.h
+            t_i = self.t_initial + i* self.h
             z_i = z[:,:,i]
-            p_ref = p[:,:,i+1]
-            # torch.is_tensor vs hasattr(u, forward) selects whether the control is 
-            # precomputed tensor or a policy network, setting current u, policy jacobian, inlcude_policy_jacobian accordingly
             if torch.is_tensor(u):
-                if u.shape != (batch_size, self.control_dim, nt):
-                    raise ValueError(
-                        "The control trajectory must have shape (batch_size,control_dim,nt)."
-                    )
                 current_u = u[:,:,i]
-                policy_jacobian = (du_dz[:,:,:,i] if du_dz is None else None)
-                include_policy_jacobian = du_dz is not None
-                z_eval = z_i 
-            elif hasattr(u, 'forward'):
-                z_eval = (
-                    z_i if z_i.requires_grad
-                    else z_i.clone().requires_grad_(True)
-                )
-                current_u = u(z_eval, ti, tract_all_fp_iters = self. track_all_fp_iters, 
-                ).view(batch_size, self.control_dim)
-                policy_jacobian = None
-                include_policy_jacobian = True 
             else:
-                raise TypeError(
-                    "u  must be a control tensor or a policy callable"
-                )
-            adjoint_drifti, beta_i = (
-                self.compute_necessary_adjoint_terms(
-                    ti, z_eval, current_u, p_ref,policy_jacobian = policy_jacobian,
-                    include_policy_jacobian = include_policy_jacobian,
-                )
-            )
-            martingale_incrementi = torch.bmm(beta_i, dW[:,:,i].unsqueeze(-1),).squeeze(-1)
-            p[:,:,i] = (  p[:,:,i+1] + self.h*adjoint_drifti + martingale_incrementi)
+                current_u = u(z_i, t_i)
+            L_z = self.compute_grad_L_z(t_i, z_i, current_u)
+            f_z = self.compute_grad_f_z(t_i, z_i, current_u)
+            sigma_z = self.compute_grad_sigma_z(t_i, z_i)
+            sigma_z_dW = torch.einsum(sigma_z, dW)
+            A = I + self.h * f_z + sigma_z_dW
+            p[:,:,i] = (self.h*L_z + torch.bmm(A.transpose(1,2),p[:,:,i+1].unsqueeze(-1)).squeeze(-1))
+
         return p
-        
 
     def compute_loss(self, u, z0, z_t = None, p_t = None, phi_t = None, jac_based=False,
                     dW_t = None, du_dz_t = None):
@@ -545,8 +436,8 @@ class ImplicitOC(ABC):
             for i in range(self.nt):
                 # first extracts the given data u_i, z_{i+1}, p_i, p_{i+1}, Delta W_i
                 current_u = u[:, :, i]
-                z_k = z_t[:,:,i+1]
-                p_k = p_t[:,:,i]
+                z = z_t[:,:,i+1]
+                p = p_t[:,:,i]
                 p_next = p_t[:,:,i+1]
                 dW_k = dW_t[:,:,i]
                 
