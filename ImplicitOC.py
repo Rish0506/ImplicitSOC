@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from utils import GradientTester
 import matplotlib.pyplot as plt
 
-class ImplicitOC(ABC):
+class ImplicitSOC(ABC):
     """
     A general class for Implicit Optimal Control problems.
     This abstract base class provides the structure for solving optimal control problems
@@ -20,6 +20,7 @@ class ImplicitOC(ABC):
         Args:
             state_dim (int): Dimension of the state vector
             control_dim (int): Dimension of the control vector
+            noise_dim (int): Dimension of the noise vector
             batch_size (int): Batch size for trajectory optimization
             t_initial (float): Initial time
             t_final (float): Final time
@@ -78,10 +79,10 @@ class ImplicitOC(ABC):
     @abstractmethod
     def compute_grad_L_z(self, t, z, u):
         """
-        [NEW] Compute the gradient of the Lagrangian with respect to state.
+        Compute the gradient of the Lagrangian with respect to state.
  
         This is the source term in the stochastic adjoint recursion:
-            p_n = dt * dL/dz_n  +  (...)^T * p_{n+1}
+            dp = - (f_z^T p + L_z+sum_{j=1}^d sigma_z_j q_j)ds + q(s)dW(s)
  
         Args:
             t (torch.Tensor or float): Current time
@@ -213,9 +214,11 @@ class ImplicitOC(ABC):
             torch.Tensor: Hamiltonian values of shape (batch_size,)
         """
         f_val = self.compute_f(t, z, u)
-        
+
         # Compute Lagrangian
         L_val = self.compute_lagrangian(t, z, u)
+        
+        sigma_val = self.compute_sigma(t, z)
         
         # Compute inner product p^T f
         inner_product = torch.sum(p * f_val, dim=1)
@@ -718,7 +721,7 @@ class ImplicitOC(ABC):
 
             if hasattr(u.p_net, "getPhi"):
                 cHJBfin = torch.mean(torch.linalg.vector_norm(u.p_net.getPhi(ti, z) - self.alphaG * temp_final_cost.view(-1, 1), ord=2, dim=1))
-                grad_T_u = self.compute_grad_T_u(current_u, z, ti, gradPhi[:,:self.state_dim], u.alpha)
+                grad_T_u = self.compute_grad_T_u(current_u, z, ti, gradPhi_k[:,:self.state_dim], u.alpha)
                 norm_grad_T_u = torch.linalg.matrix_norm(grad_T_u, ord=2, dim=(1,2))
                 idx_max = torch.argwhere(norm_grad_T_u > largest_grad_T_u_batch).flatten()
                 largest_grad_T_u_batch[idx_max] = norm_grad_T_u[idx_max]
@@ -732,16 +735,16 @@ class ImplicitOC(ABC):
 
                 if self.pen_pos:
                     if (self.oc_problem_name == "Double Integrator") or (self.oc_problem_name == "Multi Quadcopter"):
-                        gradPhi_p = (gradPhi[:,:self.state_dim].reshape(batch_size*self.num_agents, -1))[:,:3]
+                        gradPhi_p = (gradPhi_k[:,:self.state_dim].reshape(batch_size*self.num_agents, -1))[:,:3]
                         cadjfin = torch.mean(gradPhi_p.reshape(batch_size,-1) - self.compute_grad_G_z(z) )
                     elif self.oc_problem_name == "Multi Bicycle":
-                        gradPhi_p = (gradPhi[:,:self.state_dim].reshape(batch_size*self.num_agents, -1))[:,:2]
+                        gradPhi_p = (gradPhi_k[:,:self.state_dim].reshape(batch_size*self.num_agents, -1))[:,:2]
                         cadjfin = torch.mean(gradPhi_p.reshape(batch_size,-1) - self.compute_grad_G_z(z) )
                     elif self.oc_problem_name == "Single Quadcopter":
-                        gradPhi_p = (gradPhi[:,:self.state_dim].reshape(batch_size, -1))[:,:3]
+                        gradPhi_p = (gradPhi_k[:,:self.state_dim].reshape(batch_size, -1))[:,:3]
                         cadjfin = torch.mean(gradPhi_p.reshape(batch_size,-1) - self.compute_grad_G_z(z) )
                 else:
-                    cadjfin = cadjfin + torch.mean(gradPhi[:,:self.state_dim] - self.compute_grad_G_z(z) )
+                    cadjfin = cadjfin + torch.mean(gradPhi_k[:,:self.state_dim] - self.compute_grad_G_z(z) )
 
                 if hasattr(u.p_net, "getPhi"):
                     cHJBfin = torch.mean(torch.linalg.vector_norm(u.p_net.getPhi(ti,z) - self.alphaG*temp_final_cost.view(-1, 1),ord=2,dim=1))

@@ -355,6 +355,7 @@ class StochasticGradientTester:
             "grad_lagrangian_error": error_grad_lagrangian.item(),
             "grad_L_z_error": error_grad_L_z.item(),
             "grad_sigma_z error": error_grad_sigma_z.item(),
+            "grad_sigma_u error": error_grad_sigma_u.item(),
             "grad_G_z error": error_grad_G_z.item(),
             "all_passed": all_passed
         }
