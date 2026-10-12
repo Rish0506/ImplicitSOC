@@ -22,15 +22,18 @@ class TrajectorySOC:
         z_sq = torch.sum(z**2, dim=-1, keepdim=True)
         return -50.0/(0.8*math.pi)*torch.exp(-0.5*z_sq/0.4)*z/0.4
     def compute_f(self, t, z, u):
-        return u 
+        u_sq = torch.sum(u**2, dim=-1)
+        return  u**2 + z**2
     def compute_grad_f_u(self, t, z, u):
-        return torch.eye(self.control_dim, device=self.device).expand(z.shape[0], -1, -1)
+        #return torch.eye(self.state_dim, device=self.device).unsqueeze(0).repeat(u.shape[0], 1, 1)
+        return 2*u
     def compute_grad_f_z(self, t, z, u):
-        return torch.zeros(z.shape[0], self.state_dim, self.state_dim, device=self.device)
+        #return torch.zeros(z.shape[0], self.state_dim, self.state_dim, device=self.device)
+        return 2*z
     def compute_lagrangian(self, t, z, u):
         u_sq = torch.sum(u**2, dim=-1)
         return 0.5*u_sq+(1/20)*((u_sq) +0.001)**1.5+ self.Q(z)
-    def compute_grad_lagrangian(self, t, z, u):
+    def compute_grad_lagrangian(self, u):
         u_sq = torch.sum(u**2, dim=-1, keepdim=True)
         return u + u*(3/20)*((u_sq) +0.001).sqrt() 
     def compute_grad_L_z(self, t, z, u):
@@ -44,7 +47,6 @@ class TrajectorySOC:
     def compute_grad_sigma_u(self, t, z, u):      # (B, state, noise, control)
         return torch.zeros(z.shape[0], 2, 2, 2, device=self.device)
  
-    # ---- terminal cost ----
     def compute_G(self, t, z, u=None):
         return 50.0*torch.sum((z - self.z_target)**2, dim=-1)
  
@@ -58,37 +60,38 @@ if __name__ == "__main__":
     z = math.sqrt(0.4)*torch.randn(B, 2) - 1.5   # z0 ~ N(-1.5, 0.4 I)
     u = torch.randn(B, 2)
     t = torch.zeros(B)                           # tensor (not float) so vmap can batch over it
-    StochasticGradientTester.run_all_tests(problem, z=z, u=u, t=t)
+    #StochasticGradientTester.run_all_tests(problem, z=z, u=u, t=t)
 
 
     taylor_checker = GradientTester_Taylors()
-
-    z0 = z[0]
-    u0 = u[0]
-    t0 = t[0]
-    #w = torch.tensor([0.6,-0.4], device=problem.device)
+    # For z= [10,20,30], z[0] = 10 so size is 0. while z[0:1] = [10] size is 1.
+    # For z = ([[1,2], [3,4]]), z[0] = ([1,2]), z[0:1] = ([[1,2]]) 
+    z0 = z[0:1]
+    u0 = u[0:1]
+    t0 = t[0:1]
 
     taylor_checker.check_gradient(cost_func=lambda u_: problem.compute_lagrangian(t0, z0, u_),
-                                 grad_func=lambda u_: problem.compute_grad_lagrangian(t0, z0, u_),x=u0,)
+                                grad_func=lambda u_: problem.compute_grad_lagrangian(t0, z0, u_),x=u0,)
 
     taylor_checker.check_gradient( cost_func=lambda z_: problem.compute_lagrangian(t0, z_, u0),
-                                  grad_func=lambda z_: problem.compute_grad_L_z(t0, z_, u0), x=z0,)
+                                 grad_func=lambda z_: problem.compute_grad_L_z(t0, z_, u0), x=z0,)
+
+    taylor_checker.check_gradient( cost_func=lambda u_: problem.compute_f(t0, z0, u_),
+                                  grad_func=lambda u_: problem.compute_grad_f_u(t0, z0, u_),x=u0,)
+
+    taylor_checker.check_gradient( cost_func=lambda z_: problem.compute_f(t0, z_, u0),
+                                  grad_func=lambda z_: problem.compute_grad_f_z(t0, z_, u0),x=z0,)
+
+
+    taylor_checker.check_gradient( cost_func=lambda u_: problem.compute_sigma(t0, z0, u_),
+                                  grad_func=lambda u_: problem.compute_grad_sigma_u(t0, z0, u_),x=u0,)  
+
+    
+    taylor_checker.check_gradient( cost_func=lambda z_: problem.compute_sigma(t0, z_, u0),
+                                  grad_func=lambda z_: problem.compute_grad_sigma_z(t0, z_, u0),x=z0,)
 
     taylor_checker.check_gradient( cost_func=lambda z_: problem.compute_G(t0, z_),
-                                  grad_func=lambda z_: problem.compute_grad_G_z(t0, z_),x=z0,)
+                                   grad_func=lambda z_: problem.compute_grad_G_z(t0, z_),x=z0,)
 
-
-    #taylor_checker.check_gradient(cost_func=lambda z_: problem.compute_f(t0, z_, u0),
-    #                              grad_func=lambda z_: problem.compute_grad_f_z(t0, z_, u0)[0],x=z0,)
-
-    #taylor_checker.check_gradient(cost_func=lambda u_: problem.compute_f(t0, z0, u_),
-    #                              grad_func=lambda u_: problem.compute_grad_f_u(t0, z0, u_),x=u0,)
-
-    #taylor_checker.check_gradient(cost_func=lambda z_: problem.compute_sigma(t0, z_, u0),
-    #                              grad_func=lambda z_: problem.compute_grad_sigma_z(t0, z_, u0),x=z0,)
-
-    #taylor_checker.check_gradient(cost_func=lambda u_: problem.compute_sigma(t0, z0, u_),
-    #                              grad_func=lambda u_: problem.compute_grad_sigma_u(t0, z0, u_),x=u0,)
-    
     taylor_checker.check_gradient(cost_func=lambda z_: problem.Q(z_),
-                                  grad_func=lambda z_: problem.compute_grad_Q(z_),x=z0,)
+                                   grad_func=lambda z_: problem.compute_grad_Q(z_),x=z0,)

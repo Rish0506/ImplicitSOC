@@ -48,7 +48,7 @@ class StochasticGradientTester:
         autograd_grad_f_u = torch.vmap(torch.func.jacrev(soc_problem.compute_f, argnums = 2))(t, z, u_autograd)
         
         # Compute error
-        error = torch.norm(analytical_grad.permute(0, 2, 1) - autograd_grad_f_u) / (torch.norm(analytical_grad) + 1e-8)
+        error = torch.norm(analytical_grad - autograd_grad_f_u.view(*analytical_grad.shape)) / (torch.norm(analytical_grad) + 1e-8)
         
         if verbose:
             print("-" * 40)
@@ -96,7 +96,7 @@ class StochasticGradientTester:
         autograd_grad_f_z = torch.vmap(torch.func.jacrev(soc_problem.compute_f, argnums = 1))(t, z_autograd, u)
         
         # Compute error
-        error = torch.norm(analytical_grad - autograd_grad_f_z) / (torch.norm(analytical_grad) + 1e-8)
+        error = torch.norm(analytical_grad - autograd_grad_f_z.view(*analytical_grad.shape)) / (torch.norm(analytical_grad) + 1e-8)
         
         if verbose:
             print("-" * 40)
@@ -391,19 +391,44 @@ class GradientTester_Taylors:
 
         fx = cost_func(x)
         num_grad = grad_func(x)
-        num_grad_deriv = torch.sum(num_grad * v)
+
+        if fx.ndim > 1 or (fx.ndim == 1 and fx.shape[0] > 1):
+            # dim=0 means the vertical axis (rows/top-to-bottom)
+            # dim=1 means the horizontal axis (columns/ left-to-right)
+            # Keepdim = True means it keeps the dimension Pytorch deletes when sum it. 
+            num_grad_deriv = torch.sum(num_grad * v, dim=0, keepdim=True)
+        else:
+            num_grad_deriv = torch.sum(num_grad * v)
 
         for h in h_values:
             f_plus_h = cost_func(x + h * v)
             
             # Compute the absolute error
-            error = torch.abs(f_plus_h - fx - h * num_grad_deriv).item()
+            error = torch.norm(f_plus_h - fx - h * num_grad_deriv).item()
             errors_for_h.append(error)
             print(f"h = {h:.2e} | grad Error = {error:.2e}")
 
         self._plot_results(h_values, errors_for_h)
         print("--- Gradient Check Finished ---")
 
+    @staticmethod
+    def _directional_derivative(fx, num_grad, v):
+        """
+        Computes the directional derivative of cost_func at point x in the direction v.
+
+        Args:
+            fx (torch.Tensor): The function value at point x.
+            num_grad (callable): A function that takes a tensor x and returns its analytical gradient.
+            x (torch.Tensor): The point at which to compute the directional derivative.
+            v (torch.Tensor): The direction in which to compute the derivative.
+        """
+        if fx.ndim > 1 or (fx.ndim == 1 and fx.shape[0] > 1):
+            # Vector-valued function: compute directional derivative for each component
+            directional_deriv = torch.sum(num_grad * v, dim=0, keepdim=True)
+        else:
+            # Scalar-valued function: compute directional derivative
+            directional_deriv = torch.sum(num_grad * v)
+        return directional_deriv
 
     def _plot_results(self, h_values, errors):
         """
