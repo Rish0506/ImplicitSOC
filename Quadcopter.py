@@ -1,6 +1,6 @@
 from ImplicitNets import ImplicitNetOC
 from ImplicitNets import Phi
-from ImplicitOC import ImplicitOC
+from ImplicitSOC import ImplicitOC
 import torch
 import matplotlib.pyplot as plt
 import time

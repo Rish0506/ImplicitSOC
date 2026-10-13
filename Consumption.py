@@ -1,5 +1,5 @@
 # from ImplicitOC import ImplicitOC
-from ImplicitOC import ImplicitOC
+from ImplicitSOC import ImplicitOC
 import torch
 from utils import GradientTester
 

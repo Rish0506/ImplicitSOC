@@ -2,7 +2,7 @@ import os
 os.environ['KMP_DUPLICATE_LIB_OK']='True' # Workaround for OMP: Error #15
 from ImplicitNets import ImplicitNetOC
 from ImplicitNets import Phi
-from ImplicitOC import ImplicitOC
+from ImplicitSOC import ImplicitOC
 import torch
 import matplotlib.pyplot as plt
 import time

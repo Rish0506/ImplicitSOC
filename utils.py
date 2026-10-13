@@ -270,6 +270,7 @@ class StochasticGradientTester:
             t = 0.0
         analytical_grad = soc_problem.compute_grad_G_z(t, z, u)
         z_autograd = z.clone().detach().requires_grad_(True)
+        # jacrev stand for reverse mode automatic differentiation
         autograd_grad_G_z = torch.vmap(torch.func.jacrev(soc_problem.compute_G, argnums=1))(t, z_autograd, u)
         error = torch.norm(analytical_grad - autograd_grad_G_z.view(*analytical_grad.shape))/(torch.norm(analytical_grad) + 1e-8)
         if verbose:
