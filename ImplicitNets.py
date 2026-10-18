@@ -1,10 +1,19 @@
 import torch
+# Import neural network layers and module classes under nn
 import torch.nn as nn
+#import tools for defining abstract base classes and required methods
 from abc import ABC, abstractmethod
 import copy
+#import pytorch parameter initializers 
 import torch.nn.init as init
+# import two function style operations, tensor padding and the softplus activation
 from torch.nn.functional import pad, softplus
-# import MultiBicycle
+
+"""
+B = batch_size, d = state_dim, k = control_dim, m : usually the hidden layer width
+nTh = number of residual network layers, r = rank of matrix A in Phi
+x = batch of states (B,d), u = batch of controls (B,k), p = costates (B,d)
+"""
 
 def antiderivTanh(x): # activation function aka the antiderivative of tanh
     return torch.abs(x) + torch.log(1+torch.exp(-2.0*torch.abs(x)))
@@ -13,6 +22,7 @@ def antiderivTanh(x): # activation function aka the antiderivative of tanh
 def derivTanh(x): # act'' aka the second derivative of the activation function antiderivTanh
     return 1 - torch.pow( torch.tanh(x) , 2 )
 
+# the residual neural network
 class ResNN(nn.Module):
     def __init__(self, d, m, nTh=2):
         """
@@ -22,6 +32,7 @@ class ResNN(nn.Module):
         :param nTh: int, number of resNet layers , (number of theta layers)
         :param dev: str, device
         """
+        # Intializes the parent nn.Module
         super().__init__()
 
         if nTh < 2:
@@ -31,13 +42,19 @@ class ResNN(nn.Module):
         self.d = d
         self.m = m
         self.nTh = nTh
-        self.layers = nn.ModuleList([])
+        # Creates a PyTorch-managed list of layers 
+        self.layers = nn.ModuleList([])# ModuleList makes the contained layers visible to parameter counting, optimizers and saving. 
+        # creates a affine layer from d+1 inputs to m outputs. Weight shape = (m,d+1) and bias = m. 
+        # For batch input(B,d+1), it returns (B,m), y = Wx + b
         first_layer = nn.Linear(d + 1, m, bias=True)
+        # initialize the weights using Xavier uniform values and set the bias to zero
         init.xavier_uniform_(first_layer.weight)
         init.zeros_(first_layer.bias)
         self.layers.append(first_layer) # opening layer
-        
+
+        # Creates a affine layer, mapping (B,m) to (B,m)
         resnet_layer = nn.Linear(m, m, bias=True)
+        # Initializes and register this residual layer
         init.xavier_uniform_(resnet_layer.weight)
         init.zeros_(resnet_layer.bias)
         self.layers.append(resnet_layer) # resnet layers
@@ -53,22 +70,25 @@ class ResNN(nn.Module):
         :return:  tensor nex-by-m,   outputs
         """
 
+        # Applies the opening layer then the activativation function. Basically, input is (B,d+1), the result is (B,m)
         x = self.act(self.layers[0].forward(x))
 
         for i in range(1,self.nTh):
+            # x = x +  h act(W_i x + b_i)
             x = x + self.h * self.act(self.layers[i](x))
 
         return x
 
-
+# Defines a neural network base class, ABC, a abstract class 
 class PNet(nn.Module, ABC):
     """Abstract base class for P-networks used in implicit networks."""
     
     def __init__(self, d, dev='cpu'):
+        # initialization of parent class 
         super(PNet, self).__init__()
         self.d = d
         self.device=dev
-        
+    # calls the abstract set up for the problem    
     @abstractmethod
     def forward(self, t, z):
         """
@@ -83,17 +103,22 @@ class PNet(nn.Module, ABC):
         """
         pass
 
+# Defines a concrete PNET using ordinary fully connected layers
 class DefaultPNet(PNet):
     """Default implementation of a P-network with fully connected layers."""
-    
+
+    # Initialization of parameters
     def __init__(self, state_dim, hidden_dim=100, dev='cpu'):
+        # initialize the base class, saving state_dim and device
         super(DefaultPNet, self).__init__(state_dim, dev)
-        
+        #(B,d+1) to (B, hidden) to (B, hidden) to (B,d)
         self.fc1 = nn.Linear(state_dim + 1, hidden_dim, device=dev)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim, device=dev)
         self.fc3 = nn.Linear(hidden_dim, state_dim, device=dev)
+        # ReLu activation function
         self.relu = nn.ReLU()
-        
+
+    # Defines the forward pass which accepts time t and state z
     def forward(self, t, z, full_grad=False):
         """
         Forward pass of the default P-network.
@@ -105,13 +130,18 @@ class DefaultPNet(PNet):
         Returns:
             torch.Tensor: Network output.
         """
+        # add nothing on left, add on element on right, nothing on top and bottom means the number of columns will increase by one 
         zt = pad(z, [0,1,0,0], value=t)
+        # Applies two affine layer following by reLU activation function
         x = self.relu(self.fc1(zt))
         x = self.relu(self.fc2(x))
+        # returns the adjoint variable p 
         p = self.fc3(x)
         return p
-    
+
+# A scalar value model with a hand-computed gradient 
 class Phi(PNet):
+    # initialization of parameters 
     def __init__(self, nTh, m, d, r=10, dev='cpu'):
         """
             neural network approximating Phi
@@ -131,26 +161,29 @@ class Phi(PNet):
 
         r = min(r,d+1) # if number of dimensions is smaller than default r, use that
 
+        # Create a trainable matrix A of shape (r,d+1) and initializes it. The quadratic term A^T A is symmetric positive semi-definite 
         self.A  = nn.Parameter(torch.zeros(r, d+1, device=dev) , requires_grad=True)
         self.A  = nn.init.xavier_uniform_(self.A)
+        # c maps augmented state-time input (B,d+1) to (B,1)
         self.c  = nn.Linear( d+1  , 1  , bias=False, device=dev)  # b'*[x;t] + c
+        # w maps residual features (B,m) to (B,1)
         self.w  = nn.Linear( m    , 1  , bias=False, device=dev)
-
+        # Creates the residual network and places it on the selected device
         self.N = ResNN(d, m, nTh=nTh).to(dev)
 
         # set initial values
         self.w.weight.data = torch.ones(self.w.weight.data.shape, device=dev)
         self.c.weight.data = torch.zeros(self.c.weight.data.shape, device=dev)
-        # self.c.bias.data   = torch.zeros(self.c.bias.data.shape)
+        self.c.bias.data   = torch.zeros(self.c.bias.data.shape, device = dev)
 
-
-
+    # Phi.forward
     def forward(self, t, z, full_grad=False):
         """ calculating Phi(s, theta) """
         x = pad(z, [0,1,0,0], value=t) # pad z with t to get x
         # assumes specific N.act as the antiderivative of tanh
         N    = self.N
-        symA = torch.matmul(self.A.t(), self.A)
+        # define A^T A
+        symA = torch.matmul(self.A.t(), self.A) # (d+1,d+1)
         u = [] # hold the u_0,u_1,...,u_M for the forward pass
 
         # Forward of ResNet N and fill u
@@ -158,6 +191,7 @@ class Phi(PNet):
         u.append(N.act(opening)) # u0
         feat = u[0]
 
+        # Runs the remaining residula updates and stores each intermediate feature
         for i in range(1,N.nTh):
             feat = feat + N.h * N.act(N.layers[i](feat))
             u.append(feat)
@@ -173,17 +207,21 @@ class Phi(PNet):
             # z_i = z_{i+1} + h K_i' diag(...) z_{i+1}
             accGrad = term + N.h * torch.mm( N.layers[i].weight.t() , torch.tanh( N.layers[i].forward(u[i-1]) ).t() * term)
 
+        # applies the chain rule through opening layer
         tanhopen = torch.tanh(opening)  # act'( K_0 * S + b_0 )
         # z_0 = K_0' diag(...) z_1
+        # accGrad is the derivative of the neural scalar output w.r.t augmented input x, stored as (d+1,B)
         accGrad = torch.mm( N.layers[0].weight.t() , tanhopen.t() * accGrad )
+        #Adds the derivative of all three scalar functions resulting (d+1,B)
         grad = accGrad + torch.mm(symA, x.t() ) + self.c.weight.t()
 
         if full_grad:
-            # return the full gradient
+            # return the full gradient (B,d+1)
             return grad.t() 
         else:
-            return (grad[:self.d].t())
+            return (grad[:self.d].t()) # returns only state derivatives (B,d)
 
+    # Phi.getPhi
     def getPhi(self, t, z):
         
         # force A to be symmetric
@@ -205,28 +243,29 @@ class ImplicitNetOC(nn.Module, ABC):
                  tol=1e-2, 
                  tracked_iters=5,
                  p_net=None,
-                 oc_problem=None,
+                 soc_problem=None,
                  use_control_limits=False,
                  u_min=-1,
                  u_max=1,
                  dev='cpu',
                  use_aa=False,
                  beta=0.5):
+                 # Initialization 
         super(ImplicitNetOC, self).__init__()
         
         # Define network architecture parameters
         self.control_dim = control_dim
         self.state_dim = state_dim
-        self.oc_problem = oc_problem
+        self.soc_problem = soc_problem
         # Control limits
         self.use_control_limits = use_control_limits
         self.u_min = u_min
         self.u_max = u_max
         self.device = ""
-        if oc_problem is None:
+        if soc_problem is None:
             self.device = dev
         else:
-            self.device = oc_problem.device
+            self.device = soc_problem.device
         
         # Define P-network
         if p_net is None:
@@ -268,11 +307,11 @@ class ImplicitNetOC(nn.Module, ABC):
 
         assert x.shape == (batch_size, self.state_dim)
         assert t_scalar.shape == (1,)
-
-        p = self.p_net(t, x)
-        grad_H_u_val = self.oc_problem.compute_grad_H_u(t_scalar, x, u, p)
+        with torch.enable_grad():
+            p = self.p_net(t, x)
+            grad_H_u_val = self.soc_problem.compute_grad_H_u(t_scalar, x, u, p, phi_net = self.p_net)
         assert grad_H_u_val.shape == u.shape
-        return u - self.alpha * grad_H_u_val
+        return self.apply_control_limits(u + self.alpha * grad_H_u_val)
     
     def apply_control_limits(self, u):
         """
@@ -573,10 +612,11 @@ class ImplicitNetOC_pos(ImplicitNetOC, ABC):
         u_proj = h + softplus(r, beta=self.beta)
 
         # dH/du at projected control
-        p = self.p_net(t, x)
-        grad_H_u = self.oc_problem.compute_grad_H_u(
-            t_scalar, x, u_proj, p
-        )                                                     # (B, m)
+        with torch.enable_grad():
+            p = self.p_net(t, x)
+            grad_H_u = self.oc_problem.compute_grad_H_u(
+                t_scalar, x, u_proj, p
+            )                                                     # (B, m)
 
         # chain-rule factor
         sigma = torch.sigmoid(self.beta * r)

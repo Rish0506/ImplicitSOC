@@ -1,6 +1,6 @@
 import torch
 import math
-from utils import StochasticGradientTester
+from utils import StochasticGradientTestor
 from utils import GradientTester_Taylors
 
 torch.set_default_dtype(torch.float64)

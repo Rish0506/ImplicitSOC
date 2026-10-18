@@ -1,8 +1,15 @@
 import torch
 import numpy as np
 from abc import ABC, abstractmethod
-from utils import StochasticGradientTester
-import matplotlib.pyplot as plt
+
+"""
+B : batch_size, D = state_dim, M = control_dim, N : Number of time intervals, K = Brownian/noise dim 
+Shapes: z = [B,D], u = [B,M], f = [B,D], sigma = [B,D,K], dW = [B,K], p = [B,D]
+V_zz = [B,D,D], q = V_zz sigma = [B,D,K]
+z_t = [B,D,N+1], u_t = [B,M,N], p_t = [B,D,N+1], dW_t = [B,K,N]
+
+"""
+
 
 class ImplicitSOC(ABC):
     """
@@ -406,7 +413,7 @@ class ImplicitSOC(ABC):
         # Compute gradient of p^T f w.r.t. u
         p = p.unsqueeze(-1)  # Shape: (batch_size, state_dim, 1)
         grad_term2 = torch.bmm(grad_f_u_term, p).view(batch_size, self.control_dim)
-        grad_term3 = torch.einsum('bij,bjk->bik', grad_sigma_u_term, q.unsqueeze(-1)).view(batch_size, self.control_dim)
+        grad_term3 = torch.einsum('bdkm,bdk->bm', grad_sigma_u_term, q).view(batch_size, self.control_dim)
 
         # Compute total gradient
         grad_H_u_val = grad_term1 + grad_term2 + grad_term3
@@ -465,7 +472,7 @@ class ImplicitSOC(ABC):
         grad_sigma_z_term = self.compute_grad_sigma_z(t, z, u)
         _, q = self.compute_q(t, z, u, phi_net)
         # Compute gradient of p^T f w.r.t. z
-        output = grad_H_z_term + torch.bmm(grad_f_z_term, p.unsqueeze(-1)).view(batch_size, self.state_dim)+ torch.einsum('bij,bjk->bik', grad_sigma_z_term, q.unsqueeze(-1)).view(batch_size, self.state_dim)
+        output = grad_H_z_term + torch.bmm(grad_f_z_term, p.unsqueeze(-1)).view(batch_size, self.state_dim)+ torch.einsum('bijk,bij->bk', grad_sigma_z_term, q).view(batch_size, self.state_dim)
         return output
     
     def solve_adjoint_eq(self, z, u, phi_net, dW=None):
