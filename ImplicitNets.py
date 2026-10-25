@@ -174,7 +174,7 @@ class Phi(PNet):
         # set initial values
         self.w.weight.data = torch.ones(self.w.weight.data.shape, device=dev)
         self.c.weight.data = torch.zeros(self.c.weight.data.shape, device=dev)
-        self.c.bias.data   = torch.zeros(self.c.bias.data.shape, device = dev)
+        #self.c.bias.data   = torch.zeros(self.c.bias.data.shape, device = dev)
 
     # Phi.forward
     def forward(self, t, z, full_grad=False):
@@ -223,13 +223,13 @@ class Phi(PNet):
 
     # Phi.getPhi
     def getPhi(self, t, z):
-        
-        # force A to be symmetric
-        x = pad(z, [0,1,0,0], value=t)
-        symA = torch.matmul(torch.t(self.A), self.A) # A'A
-        return self.w( self.N(x)) + 0.5 * torch.sum( torch.matmul(x , symA) * x , dim=1, keepdims=True) + self.c(x)
+        if torch.is_tensor(t):
+            t = t.detach().flatten()[0].item()
+        x = pad(z, [0, 1, 0, 0], value=float(t))
+        symA = torch.matmul(torch.t(self.A), self.A)
+        return self.w(self.N(x)) + 0.5 * torch.sum(torch.matmul(x, symA) * x, dim=1, keepdims=True) + self.c(x)
 
-class ImplicitNetOC(nn.Module, ABC):
+class ImplicitNetSOC(nn.Module, ABC):
     """
     Abstract base class for implicit neural networks.
     """
@@ -251,7 +251,7 @@ class ImplicitNetOC(nn.Module, ABC):
                  use_aa=False,
                  beta=0.5):
                  # Initialization 
-        super(ImplicitNetOC, self).__init__()
+        super(ImplicitNetSOC, self).__init__()
         
         # Define network architecture parameters
         self.control_dim = control_dim
@@ -309,6 +309,7 @@ class ImplicitNetOC(nn.Module, ABC):
         assert t_scalar.shape == (1,)
         with torch.enable_grad():
             p = self.p_net(t, x)
+            #_, q = self.soc_problem.compute_q(t_scalar, x, u, p, phi_net = self.p_net)
             grad_H_u_val = self.soc_problem.compute_grad_H_u(t_scalar, x, u, p, phi_net = self.p_net)
         assert grad_H_u_val.shape == u.shape
         return self.apply_control_limits(u + self.alpha * grad_H_u_val)
@@ -575,7 +576,7 @@ class ImplicitNetOC(nn.Module, ABC):
             k += 1
         return uk, res_k, k
 
-class ImplicitNetOC_pos(ImplicitNetOC, ABC):
+class ImplicitNetSOC_pos(ImplicitNetSOC, ABC):
     """
     Similar to ImplicitNetOC, but enforces   u – h > 0 for the optimal consumption example
     by optimising in a r := u − h and 
@@ -775,7 +776,7 @@ class ImplicitNetOC_pos(ImplicitNetOC, ABC):
 
         return u_hist[:,k%m].view_as(u0), u_hist[:,(k-1)%m].view_as(u0), k
     
-class ImplicitNetOC_MB(ImplicitNetOC):
+class ImplicitNetSOC_MB(ImplicitNetSOC):
     """
     Similar to ImplicitNetOC, but with a different apply_control_limits()
     function for use with the multi bicycleOC problem

@@ -9,9 +9,10 @@ import time
 import os
 import pandas as pd
 from matplotlib import pyplot as plt
-from Quadcopter import QuadcopterOC
+from ImplicitTraj import Stochastic2D
+#from Quadcopter import QuadcopterOC
 from CVXPolicy import CVXPolicy_MC, CVXPolicy_Quadcopter
-from ImplicitNets import ImplicitNetOC
+from ImplicitNets import ImplicitNetSOC
 ## for optimal consumption example, use --
 # from ImplicitNets import ImplicitNetOC_pos as ImplicitNetOC
 import psutil

@@ -1,8 +1,9 @@
 import torch
 import numpy as np
 import argparse
-from Quadcopter import QuadcopterOC, MultiQuadcopterOC
-from ImplicitNets import ImplicitNetOC, Phi
+from ImplicitTraj import Stochastic2D
+#from Quadcopter import QuadcopterOC, MultiQuadcopterOC
+from ImplicitNets import ImplicitNetSOC, Phi
 from OptimalControlTrainer import OptimalControlTrainer
 from CVXPolicy import CVXPolicy_MultiQuadcopter
 import time
@@ -10,7 +11,7 @@ import sys, os
 #torch.set_default_dtype(torch.float64)
 
 class Logger(object):
-    def __init__(self, filename="multi_quadcopter_run.log"):
+    def __init__(self, filename="Stochastic2D_run.log"):
         self.terminal = sys.stdout
         logdir = os.path.dirname(filename)
         if logdir and not os.path.exists(logdir):
@@ -37,13 +38,13 @@ def run_quadcopter_jfb(config_oc, config_train, full_AD_mode=False, device='cpu'
     print()
     print(f"Full AD Mode: {full_AD_mode}")
     print()
-    copter_std = MultiQuadcopterOC(device=device, **config_oc)
+    copter_std = Stochastic2D(device=device, **config_oc)
     print(f"Running high-dimensional experiment with {copter_std.num_agents} quadcopters.")
     print(f"State Dimension: {copter_std.state_dim}, Control Dimension: {copter_std.control_dim}")
     tracked_iters=1
     copter_std.track_all_fp_iters = full_AD_mode
     Phi_Net = Phi(3, 96, copter_std.state_dim)
-    implicit_net = ImplicitNetOC(copter_std.state_dim, copter_std.control_dim, max_iters = int(500-tracked_iters), alpha=1.0e-4, tol=1.0e-1, tracked_iters=tracked_iters, oc_problem=copter_std, p_net=Phi_Net, dev=device).to(device)
+    implicit_net = ImplicitNetSOC(copter_std.state_dim, copter_std.control_dim, max_iters = int(500-tracked_iters), alpha=1.0e-4, tol=1.0e-1, tracked_iters=tracked_iters, oc_problem=copter_std, p_net=Phi_Net, dev=device).to(device)
     optimizer_std = torch.optim.Adam(implicit_net.parameters(), lr=config_train['lr'])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer_std, mode='min', factor=0.5, patience=10)
     trainer_std = OptimalControlTrainer(implicit_net, copter_std, optimizer_std, scheduler=scheduler, device=device)
@@ -66,7 +67,7 @@ def run_quadcopter_jbb(config_oc, config_train, device='cpu', plot_frequency=100
     print("#################                                           ##############")
     print("##########################################################################")
     print()
-    copter_cvx = MultiQuadcopterOC(device=device, **config_oc)
+    copter_cvx = Stochastic2D(device=device, **config_oc)
     Phi_Net = Phi(3, 60, copter_cvx.state_dim)
     cvx_policy = CVXPolicy_MultiQuadcopter(config_oc['num_quadcopters'], p_net=Phi_Net, tol=2.0e-3, dev=device).to(device)
     optimizer_cvx = torch.optim.Adam(cvx_policy.parameters(), lr=config_train['lr'])

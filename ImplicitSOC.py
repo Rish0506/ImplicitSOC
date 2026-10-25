@@ -45,7 +45,7 @@ class ImplicitSOC(ABC):
         self.h = (t_final - t_initial) / nt
         self.pen_pos = pen_pos
 
-        self.oc_problem_name = ""
+        self.soc_problem_name = ""
 
         # Loss function weights
         self.alphaL = alphaL  # Running cost weight
@@ -89,7 +89,7 @@ class ImplicitSOC(ABC):
         Compute the gradient of the Lagrangian with respect to state.
  
         This is the source term in the stochastic adjoint recursion:
-            dp = - (f_z^T p + L_z+sum_{j=1}^d sigma_z_j q_j)ds + q(s)dW(s)
+            dp = - (f_z^T p - L_z+sum_{j=1}^d sigma_z_j q_j)ds + q(s)dW(s)
  
         Args:
             t (torch.Tensor or float): Current time
@@ -276,7 +276,7 @@ class ImplicitSOC(ABC):
         grad_V_fun = lambda z_i: torch.autograd.grad(phi_net.getPhi(t, z_i.unsqueeze(0)).sum(), z_i, create_graph=True)[0]
         hessian_V = torch.func.vmap(torch.func.jacrev(grad_V_fun))(z_hess)
         # q_j = sum_i sigma_{i,j} * d2V/dz2_i, i.e. sigma^T hessian_V.
-        q = torch.einsum('bij,bjk->bik', hessian_V, sigma)
+        q = -torch.einsum('bij,bjk->bik', hessian_V, sigma)
         return grad_V, q
 
     # def compute_diffusion_term(self, t, z, u, phi_net):
@@ -351,7 +351,7 @@ class ImplicitSOC(ABC):
             trace_term = 0.5*(sigma_val * q).sum(dim=(1, 2))
 
         # Compute Hamiltonian
-        H_val = L_val + inner_product_fp + trace_term
+        H_val = -L_val + inner_product_fp + trace_term
 
         return H_val
     
@@ -416,7 +416,7 @@ class ImplicitSOC(ABC):
         grad_term3 = torch.einsum('bdkm,bdk->bm', grad_sigma_u_term, q).view(batch_size, self.control_dim)
 
         # Compute total gradient
-        grad_H_u_val = grad_term1 + grad_term2 + grad_term3
+        grad_H_u_val = -grad_term1 + grad_term2 + grad_term3
         
         return grad_H_u_val
 
@@ -467,12 +467,12 @@ class ImplicitSOC(ABC):
         """
         batch_size = z.shape[0]
         # Compute gradient of dynamics w.r.t. state
-        grad_H_z_term = self.compute_grad_L_z(t, z, u)
+        grad_L_z_term = self.compute_grad_L_z(t, z, u)
         grad_f_z_term = self.compute_grad_f_z(t, z, u)
         grad_sigma_z_term = self.compute_grad_sigma_z(t, z, u)
         _, q = self.compute_q(t, z, u, phi_net)
         # Compute gradient of p^T f w.r.t. z
-        output = grad_H_z_term + torch.bmm(grad_f_z_term, p.unsqueeze(-1)).view(batch_size, self.state_dim)+ torch.einsum('bijk,bij->bk', grad_sigma_z_term, q).view(batch_size, self.state_dim)
+        output = -grad_L_z_term + torch.bmm(grad_f_z_term, p.unsqueeze(-1)).view(batch_size, self.state_dim)+ torch.einsum('bijk,bij->bk', grad_sigma_z_term, q).view(batch_size, self.state_dim)
         return output
     
     def solve_adjoint_eq(self, z, u, phi_net, dW=None):
@@ -489,7 +489,7 @@ class ImplicitSOC(ABC):
         batch_size = z.shape[0]
         nt = z.shape[2] 
         p = torch.zeros(batch_size, self.state_dim, nt)
-        p[:,:,-1] = self.compute_grad_G_z(z[:,:,-1])
+        p[:,:,-1] = -self.compute_grad_G_z(z[:,:,-1])
         h = (self.t_final - self.t_initial)/nt
         t_i = self.t_final
         for i in range(nt-1, -1, -1):
@@ -500,7 +500,7 @@ class ImplicitSOC(ABC):
             # u is calculated using training.
             elif hasattr(u, 'forward'):
                 u_i = u(z[:,:,i],t_i)
-            H_z_i = self.compute_grad_H_z(t_i, z[:,:,i], u_i, p[:,:,i+1])
+            H_z_i = self.compute_grad_H_z(t_i, z[:,:,i], u_i, p[:,:,i+1],phi_net)
             _ , q_i = self.compute_q(t_i, z[:,:,i], u_i, phi_net)
             dW_i = dW[:,:,i]
             q_dW_i = torch.bmm(q_i, dW_i.unsqueeze(-1)).squeeze(-1)
@@ -546,12 +546,12 @@ class ImplicitSOC(ABC):
                 p_i = p_t[:,:,i]
                 p_next = p_t[:,:,i+1]
                 dW_i = dW_t[:,:,i]
-                q_i = self.compute_q(t_i, z, u_i, phi_net=u.p_net)[1]
+                _ , q_i = self.compute_q(t_i, z, u_i, u.p_net)
 
                 # Accumulates step cost multiplied by h.
                 running_cost = running_cost + self.h * self.compute_lagrangian(t_i, z, u_i)
                 cadj = cadj + torch.mean(p_i[:,:self.state_dim] -p_next[:,:self.state_dim]- self.h * self.compute_grad_H_z(t_i, z, u_i, p_i[:,:self.state_dim]) + self.h* torch.bmm(q_i, dW_i.unsqueeze(-1)).squeeze(-1))
-                cHJB = cHJB + self.h*torch.mean(torch.linalg.vector_norm(phi_t[:,:,i].reshape(batch_size) + self.compute_H(t_i, z, u_i, p_t[:,:self.state_dim],compute_general_H=False).view(-1,1), ord = 2, dim = 1))
+                cHJB = cHJB + self.h*torch.mean(torch.linalg.vector_norm(-phi_t[:,:,i].reshape(batch_size) + self.compute_H(t_i, z, u_i, p_t[:,:self.state_dim],compute_general_H=False).view(-1,1), ord = 2, dim = 1))
 
                 t_i = t_i + self.h
             # Calculate terminal cost
@@ -560,7 +560,7 @@ class ImplicitSOC(ABC):
             terminal_cost = torch.mean(terminal_values) # E[G(z_T)]
             grad_G = self.compute_grad_G_z(z) # \nabla_z G(z_T)         
             # Loss for adjoint state E[\|p_T-\nalba_z G(z_T)\|^2_2]
-            cadjfin = cadjfin + torch.mean((p_t[:,:,-1] - grad_G).square().sum(dim=1) )
+            cadjfin = cadjfin + torch.mean((p_t[:,:,-1] + grad_G).square().sum(dim=1) )
             # Terminal boundary condition loss for value function E[|V(T,z_T)-\alpha_G G(z_T)|^2]
             cHJBfin = torch.mean((phi_t[:,:,-1].reshape(batch_size)-self.alphaG*terminal_values).square())
 
@@ -599,13 +599,15 @@ class ImplicitSOC(ABC):
                     if not is_direct_control:
                         # extract p_i \nabla_z V(t_i, z_i) 
                         gradPhi = u.p_net(t_i, z, full_grad=True)
-                        #p_i = gradPhi[:, :self.state_dim]
-                        p_next = p_t[:,:,i+1]
-                        cadj = cadj + torch.mean(gradPhi[:, :self.state_dim] -p_next[:,:self.state_dim] - self.h * self.compute_grad_H_z(t_i, z, u_i, gradPhi[:, :self.state_dim]) + self.h*torch.bmm(q_i, dW_i.unsqueeze(-1)).squeeze(-1))
+                        p_i = -gradPhi[:, :self.state_dim]
+                        gradPhi_next = u.p_net(t_i+self.h, z, full_grad=True)
+                        p_next = -gradPhi_next[:,:self.state_dim]
+                        _, q_i = self.compute_q(t_i, z, u_i, u.p_net)
+                        cadj = cadj + torch.mean(p_i -p_next - self.h * self.compute_grad_H_z(t_i, z, u_i, p_i, u.p_net) + self.h*torch.bmm(q_i, dW_i.unsqueeze(-1)).squeeze(-1))
                         if hasattr(u.p_net, "getPhi"):
-                            cHJB = cHJB + self.h*torch.mean(torch.linalg.vector_norm(gradPhi[:,-1:] + self.compute_H(t_i, z, u_i, gradPhi[:,:self.state_dim], compute_general_H=False).view(-1,1), ord = 2, dim = 1))
+                            cHJB = cHJB + self.h*torch.mean(torch.linalg.vector_norm(gradPhi[:,-1:] + self.compute_H(t_i, z, u_i, p_i, u.p_net, compute_general_H=False).view(-1,1), ord = 2, dim = 1))
                         
-                        grad_H_u = self.compute_grad_H_u(t_i, z, u_i, gradPhi[:,:self.state_dim])
+                        grad_H_u = self.compute_grad_H_u(t_i, z, u_i, p_i, u.p_net)
                         max_norm_grad_H_u = torch.max(torch.linalg.vector_norm(grad_H_u, ord=2, dim=1)).item()
                         avg_grad_H_u += torch.mean(torch.linalg.vector_norm(grad_H_u, ord=2, dim=1)).item()
                         if max_norm_grad_H_u > largest_grad_H_u:
@@ -621,16 +623,16 @@ class ImplicitSOC(ABC):
 
                     if self.pen_pos:
                         if self.oc_problem_name in ( "Double Integrator", "Multi Quadcopter"):
-                            gradPhi_p = (gradPhi[:,:self.state_dim].reshape(batch_size * self.num_agents, -1)[:, :3])
-                            cadjfin = torch.mean(gradPhi_p.reshape(batch_size,-1) - self.compute_grad_G_z(z))
+                            gradPhi_p = (-gradPhi[:,:self.state_dim].reshape(batch_size * self.num_agents, -1)[:, :3])
+                            cadjfin = torch.mean(gradPhi_p.reshape(batch_size,-1) + self.compute_grad_G_z(z))
                         elif self.oc_problem_name == "Multi Bicycle":
-                            gradPhi_p = (gradPhi[:,:self.state_dim].reshape(batch_size * self.num_agents, -1)[:, :2])
-                            cadjfin = torch.mean(gradPhi_p.reshape(batch_size,-1) - self.compute_grad_G_z(z))
+                            gradPhi_p = (-gradPhi[:,:self.state_dim].reshape(batch_size * self.num_agents, -1)[:, :2])
+                            cadjfin = torch.mean(gradPhi_p.reshape(batch_size,-1) + self.compute_grad_G_z(z))
                         elif self.oc_problem_name == "Single Quadcopter":
-                            gradPhi_p = (gradPhi[:,:self.state_dim].reshape(batch_size * self.num_agents, -1)[:, :3])
-                            cadjfin = torch.mean(gradPhi_p.reshape(batch_size,-1) - self.compute_grad_G_z(z))
+                            gradPhi_p = (-gradPhi[:,:self.state_dim].reshape(batch_size * self.num_agents, -1)[:, :3])
+                            cadjfin = torch.mean(gradPhi_p.reshape(batch_size,-1) + self.compute_grad_G_z(z))
                     else:
-                        cadjfin = cadjfin + torch.mean(gradPhi[:,:self.state_dim] - self.compute_grad_G_z(z) )
+                        cadjfin = cadjfin + torch.mean(-gradPhi[:,:self.state_dim] + self.compute_grad_G_z(z) )
 
                     if hasattr(u.p_net, "getPhi"):                    
                         cHJBfin = torch.mean(torch.linalg.vector_norm(u.p_net.getPhi(t_i,z) - self.alphaG*temp_final_cost.view(-1, 1), ord=2, dim=1))
@@ -680,15 +682,15 @@ class ImplicitSOC(ABC):
             for i in range(self.nt):
                 u_i = u[:, :, i]
                 z = z_t[:,:,i+1]
-                p_i = p_t[:, :, i]
+                p_i = p_t[:, :, i] 
                 p_next = p_t[:, :, i + 1]
                 dW_i = dW_t[:,:,i]
-                q_i = self.compute_q(t_i, z, u_i, phi_net=u.p_net)[1]
+                q_i = self.compute_q(t_i, z, u_i, phi_net=u.p_net)
                 
                 # Accumulates step cost multiplied by h.
                 running_cost = running_cost + self.h * self.compute_lagrangian(t_i, z, u_i)
                 cadj = cadj + torch.mean(p_i[:,:self.state_dim] -p_next[:,:self.state_dim]- self.h * self.compute_grad_H_z(t_i, z, u_i, p_i[:,:self.state_dim]) + self.h* torch.bmm(q_i, dW_i.unsqueeze(-1)).squeeze(-1))
-                cHJB = cHJB + self.h*torch.mean(phi_t[:,:,i].reshape(batch_size) + self.compute_H(t_i, z, u_i, p_t[:,:self.state_dim],compute_general_H=False).view(-1,1))
+                cHJB = cHJB + self.h*torch.mean(-phi_t[:,:,i].reshape(batch_size) + self.compute_H(t_i, z, u_i, p_t[:,:self.state_dim],compute_general_H=False).view(-1,1))
 
                 t_i = t_i + self.h
 
@@ -696,7 +698,7 @@ class ImplicitSOC(ABC):
             terminal_values = self.compute_G(z)
             terminal_cost = torch.mean(terminal_values)
             grad_G = self.compute_grad_G_z(z)
-            cadjfin = torch.mean((p_t[:, :, -1] - grad_G).square().sum(dim=1))
+            cadjfin = torch.mean((p_t[:, :, -1] + grad_G).square().sum(dim=1))
             cHJBfin = torch.mean((phi_t[:, :, -1].reshape(batch_size)- self.alphaG * terminal_values).square())
         
         else:
@@ -722,7 +724,9 @@ class ImplicitSOC(ABC):
                     z = z + self.h * f_i + torch.bmm(sigma_i, dW_i.unsqueeze(-1)).squeeze(-1)
                     running_cost = running_cost + self.h * self.compute_lagrangian(t_i, z, u_i)                    
                     gradPhi = u.p_net(t_i, z, full_grad=True)
-                    p_next = p_t[:,:i+1]
+                    p_i = -gradPhi[:,:self.state_dim]
+                    gradPhi_next = u.p_net(t_i+self.h, z, full_grad=True)
+                    p_next = -gradPhi_next[:,:self.state_dim]
                     cadj = cadj + torch.mean(gradPhi[:,:self.state_dim]-p_next[:,:self.state_dim]- self.h * self.compute_grad_H_z(t_i, z, u_i, gradPhi[:, :self.state_dim]) + self.h*torch.bmm(q_i, dW_i.unsqueeze(-1)).squeeze(-1))
 
                     if hasattr(u.p_net, "getPhi"):
