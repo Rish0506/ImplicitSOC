@@ -5,7 +5,7 @@ import argparse
 from Stochastic2D import Stochastic2D
 from ImplicitNets import ImplicitNetSOC, Phi
 from OptimalControlTrainer import OptimalControlTrainer
-from CVXPolicy import CVXPolicy_S2D
+#from CVXPolicy import CVXPolicy_S2D
 import time
 import sys, os
 
