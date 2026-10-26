@@ -1,5 +1,5 @@
 """
-Working Jacobian-based trainer that extends your existing ImplicitNetOC.
+Working Jacobian-based trainer that extends your existing ImplicitNetSOC.
 This follows the exact pattern from your utils_JFB.py but adapted for optimal control.
 """
 
@@ -9,10 +9,10 @@ import time
 import os
 import pandas as pd
 from matplotlib import pyplot as plt
-from ImplicitTraj import Stochastic2D
-#from Quadcopter import QuadcopterOC
-from CVXPolicy import CVXPolicy_MC, CVXPolicy_Quadcopter
+from Stochastic2D import Stochastic2D
+from CVXPolicy import CVXPolicy_S2D
 from ImplicitNets import ImplicitNetSOC
+from ImplicitNets import Phi
 ## for optimal consumption example, use --
 # from ImplicitNets import ImplicitNetOC_pos as ImplicitNetOC
 import psutil
@@ -73,9 +73,9 @@ class LRScheduler:
 
 
 class OptimalControlTrainer:
-    def __init__(self, policy_net, oc_problem, optimizer, scheduler=None, ver=False, device='cpu'):
+    def __init__(self, policy_net, soc_problem, optimizer, scheduler=None, ver=False, device='cpu'):
         self.policy = policy_net
-        self.oc_problem = oc_problem
+        self.soc_problem = soc_problem
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.device = device
@@ -114,7 +114,7 @@ class OptimalControlTrainer:
 
         self.optimizer.zero_grad()
         # === CHANGE: Unpack all 7 values from compute_loss ===
-        total_cost, run_cost, term_cost, cHJB, cHJBfin, cadj, cadjfin, max_grad_H, avg_grad_H = self.oc_problem.compute_loss(self.policy, z0)
+        total_cost, run_cost, term_cost, cHJB, cHJBfin, cadj, cadjfin, max_grad_H, avg_grad_H = self.soc_problem.compute_loss(self.policy, z0)
         total_cost.backward()
         if self.enable_grad_clip:
             torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.grad_clip_value)
@@ -213,8 +213,8 @@ class OptimalControlTrainer:
             return self.standard_step(z0)
     
     def train(self, z0, num_epochs, verbose=True, plot_frequency=25, save_model_name='best_policy'):
-        oc_name = type(self.oc_problem).__name__
-        save_dir = f'results_{oc_name}/{self.mode}_mode'
+        soc_name = type(self.soc_problem).__name__
+        save_dir = f'results_{soc_name}/{self.mode}_mode'
         if not os.path.exists(save_dir): os.makedirs(save_dir)
         save_path = os.path.join(save_dir, f'{save_model_name}.pth')
         history_path = os.path.join(save_dir, f'history_{save_model_name}.csv')
@@ -242,9 +242,10 @@ class OptimalControlTrainer:
 
             grad_norm = sum(p.grad.norm().item()**2 for p in self.policy.parameters() if p.grad is not None)**0.5
 
-            work_units = self.oc_problem.batch_size*self.policy.tracked_iters
-            if (step_info['max_fp_itrs'] < self.policy.tracked_iters) or self.oc_problem.track_all_fp_iters:
-                work_units = self.oc_problem.batch_size*step_info['max_fp_itrs']
+            tracked = getattr(self.policy, 'tracked_iters', 1)
+            work_units = self.soc_problem.batch_size*tracked
+            if (step_info['max_fp_itrs'] < tracked) or self.soc_problem.track_all_fp_iters:
+                work_units = self.soc_problem.batch_size*step_info['max_fp_itrs']
             
 
             # This loop correctly populates the full history dict
@@ -279,9 +280,9 @@ class OptimalControlTrainer:
                 if verbose: print(f"    -> New best model saved to {save_path} with loss {best_loss:.4e}")
 
             if plot_frequency and epoch % plot_frequency == 0:
-                z_traj = self.oc_problem.generate_trajectory(self.policy, z0,
+                z_traj = self.soc_problem.generate_trajectory(self.policy, z0,
                                                              self.oc_problem.nt, return_full_trajectory=True)
-                self.oc_problem.plot_position_trajectories(z_traj.detach(), self.policy)
+                self.soc_problem.plot_trajectories(z_traj.detach(), self.policy)
 
             # === Save CSV after each epoch ===
             pd.DataFrame(self.history).to_csv(history_path, index=False)
@@ -297,35 +298,35 @@ class OptimalControlTrainer:
 if __name__ == '__main__':
 
     # --- Shared Configuration ---
-    config_OC = {'batch_size': 10, 'nt': 2, 't_final': 10.0, }
+    config_OC = {'batch_size': 10, 'nt': 2, 't_final': 1.0, }
     config_train = { 'lr': 1e-3, 'epochs': 2}
     device = 'cpu'
 
     # --- 1. Train with Standard Mode ---
     print("\n\n--- Testing Standard Mode ---")
-    mc_problem_std = MountainCarOC(device=device, **config_OC)
-    implicit_net = ImplicitNetOC(
-        mc_problem_std.state_dim, mc_problem_std.control_dim, oc_problem=mc_problem_std, dev=device
-    ).to(device)
-    optimizer_std = torch.optim.Adam(implicit_net.parameters(), lr=config_train['lr'])
 
-    trainer_std = OptimalControlTrainer(implicit_net, mc_problem_std, optimizer_std, device=device)
+    S2D_problem_std = Stochastic2D(device=device, **config_OC)
+    phi_std = Phi(3, 10, S2D_problem_std.state_dim, dev=device)
+    implicit_net = ImplicitNetSOC(S2D_problem_std.state_dim, S2D_problem_std.control_dim,
+        soc_problem=S2D_problem_std, p_net=phi_std, dev=device).to(device)
+    optimizer_std = torch.optim.Adam(implicit_net.parameters(), lr=config_train['lr'])
+    scheduler_std = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer_std, mode='min', factor=0.8, patience=15)
+    trainer_std = OptimalControlTrainer(implicit_net, S2D_problem_std, optimizer_std, scheduler_std, device=device)
     trainer_std.set_mode('standard')
-    z0_std = mc_problem_std.sample_initial_condition()
+    z0_std = S2D_problem_std.sample_initial_condition()
     trainer_std.train(z0_std, num_epochs=config_train['epochs'], save_model_name='best_standard_policy')
     
     # --- 2. Train with CVXPY Mode ---
     print("\n--- Testing CVXPY Mode ---")
     from ImplicitNets import Phi
-    mc_problem = MountainCarOC(device=device, **config_OC)
-    Phi = Phi(3, 10, mc_problem.state_dim)
-    cvx_policy = CVXPolicy_MC(mc_problem.state_dim, mc_problem.control_dim,
-                            mc_problem.power, p_net=Phi).to(device)
+    S2D_problem = Stochastic2D(device=device, **config_OC)
+    Phi = Phi(3, 10, S2D_problem.state_dim, dev=device)
+    cvx_policy = CVXPolicy_S2D(S2D_problem.state_dim, S2D_problem.control_dim, p_net=Phi).to(device)
     optimizer = torch.optim.Adam(cvx_policy.parameters(), lr=config_train['lr'])
-    
-    trainer_cvx = OptimalControlTrainer(cvx_policy, mc_problem, optimizer, device=device)
+    scheduler_cvx = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.8, patience=15)
+    trainer_cvx = OptimalControlTrainer(cvx_policy, S2D_problem, optimizer, scheduler_cvx, device=device)
     trainer_cvx.set_mode('cvx')
-    z0 = mc_problem.sample_initial_condition()
+    z0 = S2D_problem.sample_initial_condition()
     trainer_cvx.train(z0, num_epochs=config_train['epochs'], save_model_name='best_cvx_policy')
 
 

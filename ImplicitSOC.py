@@ -598,6 +598,7 @@ class ImplicitSOC(ABC):
                     # Only compute HJB and adjoint for implicit control methods
                     if not is_direct_control:
                         # extract p_i \nabla_z V(t_i, z_i) 
+                        z = z.to(dtype=next(u.p_net.parameters()).dtype)
                         gradPhi = u.p_net(t_i, z, full_grad=True)
                         p_i = -gradPhi[:, :self.state_dim]
                         gradPhi_next = u.p_net(t_i+self.h, z, full_grad=True)

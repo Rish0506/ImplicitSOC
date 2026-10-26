@@ -187,6 +187,7 @@ class Phi(PNet):
         u = [] # hold the u_0,u_1,...,u_M for the forward pass
 
         # Forward of ResNet N and fill u
+        x = x.to(dtype=N.layers[0].weight.dtype)
         opening     = N.layers[0].forward(x) # K_0 * S + b_0
         u.append(N.act(opening)) # u0
         feat = u[0]
