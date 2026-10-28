@@ -611,7 +611,7 @@ class ImplicitSOC(ABC):
                         gradPhi = u.p_net(t_i, z, full_grad=True)
 
                         _, q_i = self.compute_q(t_i, z, u_i, u.p_net)
-                        cadj = cadj + torch.mean(gradPhi[:,:self.state_dim]- self.h * self.compute_grad_H_z(t_i, z, u_i, gradPhi[:,:self.state_dim]) - torch.bmm(q_i, dW_i.unsqueeze(-1)).squeeze(-1))
+                        cadj = cadj + torch.mean(gradPhi[:,:self.state_dim]- self.h * self.compute_grad_H_z(t_i, z, u_i, gradPhi[:,:self.state_dim], phi_net=u.p_net) - torch.bmm(q_i, dW_i.unsqueeze(-1)).squeeze(-1))
                         if hasattr(u.p_net, "getPhi"):
                             cHJB = cHJB + self.h*torch.mean(torch.linalg.vector_norm(gradPhi[:,-1:] - self.compute_H(t_i, z, u_i, gradPhi[:,:self.state_dim],u.p_net, compute_general_H=False).view(-1,1), ord = 2, dim = 1))
                         
