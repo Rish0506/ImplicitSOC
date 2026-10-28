@@ -543,26 +543,29 @@ class ImplicitSOC(ABC):
                 # first extracts the given data u_i, z_{i+1}, p_i, p_{i+1}, Delta W_i
                 u_i = u[:, :, i]
                 z = z_t[:,:,i+1]
-                p_i = p_t[:,:,i]
-                p_next = p_t[:,:,i+1]
+                gradPhi = p_t[:,:,i]
+                #p_i = p_t[:,:,i]
+                #p_next = p_t[:,:,i+1]
                 dW_i = dW_t[:,:,i]
                 _ , q_i = self.compute_q(t_i, z, u_i, u.p_net)
 
                 # Accumulates step cost multiplied by h.
                 running_cost = running_cost + self.h * self.compute_lagrangian(t_i, z, u_i)
-                cadj = cadj + torch.mean(p_i[:,:self.state_dim] -p_next[:,:self.state_dim]- self.h * self.compute_grad_H_z(t_i, z, u_i, p_i[:,:self.state_dim]) + self.h* torch.bmm(q_i, dW_i.unsqueeze(-1)).squeeze(-1))
-                cHJB = cHJB + self.h*torch.mean(torch.linalg.vector_norm(-phi_t[:,:,i].reshape(batch_size) + self.compute_H(t_i, z, u_i, p_t[:,:self.state_dim],compute_general_H=False).view(-1,1), ord = 2, dim = 1))
+                #cadj = cadj + torch.mean(p_i[:,:self.state_dim] -p_next[:,:self.state_dim]- self.h * self.compute_grad_H_z(t_i, z, u_i, p_i[:,:self.state_dim]) + self.h* torch.bmm(q_i, dW_i.unsqueeze(-1)).squeeze(-1))
+                cadj = cadj + torch.mean(gradPhi[:,:self.state_dim]+ self.h * self.compute_grad_H_z(t_i, z, u_i, gradPhi[:,:self.state_dim]) - self.h* torch.bmm(q_i, dW_i.unsqueeze(-1)).squeeze(-1))
+                cHJB = cHJB + self.h*torch.mean(torch.linalg.vector_norm(phi_t[:,:,i].reshape(batch_size) - self.compute_H(t_i, z, u_i, gradPhi[:,:self.state_dim],compute_general_H=False).view(-1,1), ord = 2, dim = 1))
 
                 t_i = t_i + self.h
             # Calculate terminal cost
-            z = z_t[:,:,-1] # z(T)
-            terminal_values = self.compute_G(z)  # G(z_T)
-            terminal_cost = torch.mean(terminal_values) # E[G(z_T)]
-            grad_G = self.compute_grad_G_z(z) # \nabla_z G(z_T)         
-            # Loss for adjoint state E[\|p_T-\nalba_z G(z_T)\|^2_2]
-            cadjfin = cadjfin + torch.mean((p_t[:,:,-1] + grad_G).square().sum(dim=1) )
-            # Terminal boundary condition loss for value function E[|V(T,z_T)-\alpha_G G(z_T)|^2]
-            cHJBfin = torch.mean((phi_t[:,:,-1].reshape(batch_size)-self.alphaG*terminal_values).square())
+            temp_final_cost = self.compute_G(z)
+            terminal_cost = torch.mean(temp_final_cost)
+            gradPhi = p_t[:,:,i+1]
+            z_temp = z.view(batch_size*self.num, -1)
+            z_target_temp = self.z_target.reshape(batch_size*self.num, -1)
+            diff_p = (z_temp[:,:2] - z_target_temp[:,:2]).view(batch_size,-1)
+            G = 0.5*torch.norm(diff_p, dim=1)**2            
+            cadjfin = cadjfin + torch.mean(gradPhi[:,:self.state_dim] + self.compute_grad_G_z(z) )
+            cHJBfin = torch.mean(torch.linalg.vector_norm(phi_t[:,:,i+1] - self.alphaG*temp_final_cost.view(-1, 1), ord=2, dim=1))
 
         else:
             if torch.is_tensor(u):
@@ -578,8 +581,8 @@ class ImplicitSOC(ABC):
                     running_cost = running_cost + self.h * self.compute_lagrangian(t_i, z, u_i)
                     t_i = t_i + self.h
 
-                terminal_values = self.compute_G(z)
-                terminal_cost = torch.mean(terminal_values)
+                temp_final_cost = self.compute_G(z)
+                terminal_cost = torch.mean(temp_final_cost)
 
 
             elif hasattr(u, 'forward'):
@@ -600,15 +603,15 @@ class ImplicitSOC(ABC):
                         # extract p_i \nabla_z V(t_i, z_i) 
                         z = z.to(dtype=next(u.p_net.parameters()).dtype)
                         gradPhi = u.p_net(t_i, z, full_grad=True)
-                        p_i = -gradPhi[:, :self.state_dim]
-                        gradPhi_next = u.p_net(t_i+self.h, z, full_grad=True)
-                        p_next = -gradPhi_next[:,:self.state_dim]
-                        _, q_i = self.compute_q(t_i, z, u_i, u.p_net)
-                        cadj = cadj + torch.mean(p_i -p_next - self.h * self.compute_grad_H_z(t_i, z, u_i, p_i, u.p_net) + self.h*torch.bmm(q_i, dW_i.unsqueeze(-1)).squeeze(-1))
+                        # p_i = -gradPhi[:, :self.state_dim]
+                        # gradPhi_next = u.p_net(t_i+self.h, z, full_grad=True)
+                        # p_next = -gradPhi_next[:,:self.state_dim]
+                        # _, q_i = self.compute_q(t_i, z, u_i, u.p_net)
+                        cadj = cadj + torch.mean(gradPhi[:,:self.state_dim]+ self.h * self.compute_grad_H_z(t_i, z, u_i, gradPhi[:,:self.state_dim]) - self.h* torch.bmm(q_i, dW_i.unsqueeze(-1)).squeeze(-1))
                         if hasattr(u.p_net, "getPhi"):
-                            cHJB = cHJB + self.h*torch.mean(torch.linalg.vector_norm(gradPhi[:,-1:] + self.compute_H(t_i, z, u_i, p_i, u.p_net, compute_general_H=False).view(-1,1), ord = 2, dim = 1))
+                            cHJB = cHJB + self.h*torch.mean(torch.linalg.vector_norm(gradPhi[:,-1:] - self.compute_H(t_i, z, u_i, gradPhi[:,:self.state_dim],u.p_net, compute_general_H=False).view(-1,1), ord = 2, dim = 1))
                         
-                        grad_H_u = self.compute_grad_H_u(t_i, z, u_i, p_i, u.p_net)
+                        grad_H_u = self.compute_grad_H_u(t_i, z, u_i, gradPhi[:,:self.state_dim], u.p_net)
                         max_norm_grad_H_u = torch.max(torch.linalg.vector_norm(grad_H_u, ord=2, dim=1)).item()
                         avg_grad_H_u += torch.mean(torch.linalg.vector_norm(grad_H_u, ord=2, dim=1)).item()
                         if max_norm_grad_H_u > largest_grad_H_u:
@@ -798,106 +801,7 @@ class ImplicitSOC(ABC):
         largest_grad_T_u = torch.max(largest_grad_T_u_batch).item()
 
         return total_cost, running_cost, terminal_cost, cHJB, cHJBfin, cadj, cadjfin, largest_grad_H_u, avg_grad_H_u, smallest_M_sdval, largest_M_sdval, smallest_lambda_min, largest_lambda_max, largest_grad_T_u, avg_grad_T_u, sd_grad_T_u
-
-    def compute_loss_consumcheck(self, policy, z0, z_t=None, p_t=None, phi_t=None, jac_based=False):
-        
-        """
-        JFB compute_loss with closed-form adjoint check.
-        """
-        B = z0.shape[0]
-        dt = (self.t_final - self.t_initial) / self.nt
-        running_cost = torch.tensor(0.0, device=z0.device)
-        cHJB         = torch.tensor(0.0, device=z0.device)
-        cadj         = torch.tensor(0.0, device=z0.device)
-        max_grad_u_H = torch.tensor(-1.0, device=z0.device)
-        z = z0.clone().requires_grad_(True)
-        t = self.t_initial
-
-        # Compute Phi0 and its gradient dPhi0 = D_zPhi0
-        Phi  = policy.p_net.getPhi(t, z)              # (B,1)
-        dPhi = torch.autograd.grad(
-                Phi.sum(), z,
-                create_graph=True,
-                retain_graph=True
-            )[0]                                  # (B, D)
-
-        for k in range(self.nt):
-
-            u_k = policy(z, t)                       # (B, m)
-            f_k = self.compute_f(t, z, u_k)          # (B, D)
-            sigma_k = self.compute_sigma(t,z,u_k)
-            dW_k = self.sample_dW(z,sigma_k)
-            # print('shapes', u_k.shape, f_k.shape, z.shape, t)
-            
-            # Forward‐Euler to next state
-            z1 = z + dt * f_k + torch.bmm(sigma_k, dW_k.unsqueeze(-1)).squeeze(-1)
-            t1 = t + dt
-            z1 = z1.requires_grad_(True)
-
-            # Next‐step Phi1 and gradient dPhi1
-            Phi1  = policy.p_net.getPhi(t1, z1)      # (B,1)
-            dPhi1 = torch.autograd.grad(
-                    Phi1.sum(), z1,
-                    create_graph=True,
-                    retain_graph=True
-                )[0]                             # (B, D)
-
-            # Running cost at (t, z1, u_k)
-            running_cost = running_cost + dt * torch.mean(self.compute_lagrangian(t, z1, u_k))
-
-            # HJB residual: Phi_k - [Phi_{k+1} - dt*(L + dPhi*f)]
-            H_val     = self.compute_H(t, z1, u_k, dPhi, compute_general_H=False)
-            resid_hjb = Phi.view(B) - (Phi1.view(B) - dt * H_val)
-            cHJB      = cHJB + torch.mean(resid_hjb.pow(2))
-
-            # closed-form adjoint check
-            #    finite-difference of dPhi
-            dp    = (dPhi1 - dPhi) / dt                       # (B, D)
-            # print(f"[HJB step {k}, p_prev: {dPhi.shape}, f_val: {f_k.shape}] ")
-            #    closed-form RHS:
-            #      dot p_x = -r p_x
-            rhs_px = -self.r * dPhi[:, 0]                     # (B,)
-            #      dot p_h = e^{-delta t} (u-h)^{-gamma} + (dPhi_h @ B)
-            h_k    = z[:, 1:1+self.m]                         # (B,m)
-            rhs_ph = (
-                torch.exp(-self.delta * torch.tensor(t1, device=z0.device, dtype=z0.dtype)) 
-                * (u_k - h_k).pow(-self.gamma) #.clamp_min(1e-6)
-                + dPhi[:, 1:1+self.m] @ self.B
-            )                                                 # (B,m)
-            rhs    = torch.cat([rhs_px.unsqueeze(1), rhs_ph], dim=1)  # (B,D)
-            residA = dp - rhs                                 # (B,D)
-            cadj   = cadj + torch.mean(residA.pow(2).sum(dim=1))
-            # print('cadj', cadj)
-
-            # 7) Track max ||D_u H||
-            grad_uH = self.compute_grad_H_u(t, z, u_k, dPhi)
-            max_norm = grad_uH.norm(dim=1).max()
-            max_grad_u_H = torch.maximum(max_grad_u_H, max_norm)
-
-            # 8) Next step
-            z, t, Phi, dPhi = z1, t1, Phi1, dPhi1
-
-        # Terminal penalties
-        terminal_cost = torch.mean(self.compute_G(z))
-
-        # adjoint terminal: p_T − DG(z_T)
-        gradG   = self.compute_grad_G_z(z)                # (B,D)
-        cadjfin = torch.mean((dPhi - gradG).pow(2).sum(dim=1))
-
-        # terminal HJB: Phi_T − G(z_T)
-        resid_hjb_fin = Phi.view(B) - self.compute_G(z)
-        cHJBfin = torch.mean(resid_hjb_fin.pow(2))
-
-        total_cost = (
-            self.alphaL * running_cost
-        + self.alphaG * terminal_cost
-        + self.alphaHJB[0] * cHJB
-        + self.alphaadj[1]   * cadjfin
-        + self.alphaHJB[1] * cHJBfin
-        )
-
-        return (total_cost, running_cost, terminal_cost,
-                cHJB, cHJBfin, cadj, cadjfin, max_grad_u_H)
+    
     
     def compute_grad_T_theta(self, model, z, ti, create_graph=False):
         """
