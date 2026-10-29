@@ -105,7 +105,7 @@ class Stochastic2D(ImplicitSOC):
         if z_target is None:
             z_target = self.z_target
             # Plot: contour of the Gaussian bump Q so the reader sees why the paths bend around the origin
-        xs = torch.linspace(-3.5, 3.5, 141)
+        xs = torch.linspace(-3, 3, 149)
         X, Y = torch.meshgrid(xs, xs, indexing="xy")
         Qv = self.Q(torch.stack([X.reshape(-1), Y.reshape(-1)], 1).to(self.device)).reshape(X.shape)
         plt.contourf(X.numpy(), Y.numpy(), Qv.detach().cpu().numpy(), levels=10, cmap="Reds", alpha=0.5)

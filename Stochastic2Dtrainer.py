@@ -69,7 +69,7 @@ def run_s2d_jfb(config_oc, config_train, full_AD_mode=False, device="cpu", plot_
     phi_net = Phi(3, 96, stochastic2D_std.state_dim)
     tracked_iters = 1
     stochastic2D_std.track_all_fp_iters = full_AD_mode
-    implicit_net = ImplicitNetSOC(stochastic2D_std.state_dim, stochastic2D_std.control_dim, max_iters=int(50-tracked_iters), alpha=1e-1, tol=1e-1, tracked_iters=tracked_iters, soc_problem=stochastic2D_std, p_net=phi_net, dev=device).to(device)
+    implicit_net = ImplicitNetSOC(stochastic2D_std.state_dim, stochastic2D_std.control_dim, max_iters=int(50-tracked_iters), alpha=1e-1, tol=1e-2, tracked_iters=tracked_iters, soc_problem=stochastic2D_std, p_net=phi_net, dev=device).to(device)
     optimizer_std = torch.optim.Adam(implicit_net.parameters(), lr=config_train['lr'])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer_std, mode="min", factor=0.5, patience=40, min_lr=1e-4)
     trainer_std = OptimalControlTrainer(implicit_net, stochastic2D_std, optimizer_std, scheduler=scheduler, device=device)
@@ -121,10 +121,10 @@ def main():
     # parser.add_argument('--train_jbb',action='store_true',default=False,
     #     help='Train the CVXPY / Jacobian-based policy',)
 
-    parser.add_argument("--batch_size", type=int, default=32, help="Trajectories per step (default: 32)")
+    parser.add_argument("--batch_size", type=int, default=64, help="Trajectories per step (default: 32)")
     parser.add_argument("--nt", type=int, default=20, help="Time steps on [0, t_final] (default: 20)")
     parser.add_argument("--t_final", type=float, default=1.0, help="Horizon (default: 1.0)")
-    parser.add_argument("--epochs", type=int, default=300, help="Epochs per trial (default: 500)")
+    parser.add_argument("--epochs", type=int, default=30, help="Epochs per trial (default: 500)")
     parser.add_argument("--lr", type=float, default=1.0e-2, help="Adam learning rate (default: 1e-3)")
     parser.add_argument("--n_trials", type=int, default=1, help="Repeated runs. The seed is set once (default: 1)")
     parser.add_argument("--hidden", type=int, default=64, help="Phi hidden width (default: 64)")
