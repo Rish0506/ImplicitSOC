@@ -23,7 +23,7 @@ class Stochastic2D(ImplicitSOC):
 
     def Q(self, z):
         z = z.view(-1, self.state_dim)
-        return  50.0/(0.8*math.pi)*torch.exp(-0.5*torch.sum(z**2, dim=-1)/0.4)
+        return  (50.0/(0.8*math.pi))*torch.exp(-0.5*torch.sum(z**2, dim=-1)/0.4)
     def compute_grad_Q_z(self, z):
         z = z.view(-1, self.state_dim)
         z_sq = torch.sum(z**2, dim=-1, keepdim=True)
@@ -189,7 +189,7 @@ def main():
     print(f"State Dimension: {state_dim}, Control Dimension: {control_dim}")
     # constructs Phi_net from ImplicitNets
     Phi_net = Phi(3,10,state_dim, dev = device)
-    
+
     u_net_implicit = ImplicitNetSOC(state_dim = state_dim, control_dim=control_dim,hidden_dim = 512, tol=1e-3, soc_problem = problem, 
                                     p_net = Phi_net, use_aa=False).to(device)
     # plotting the traj
@@ -205,7 +205,7 @@ def main():
 
     plot_frequency = 1
     best_loss = float('inf')
-    max_epochs = int(1)
+    max_epochs = int(32)
 
     # Starts the iteration timer and clear gradients left from a previous optimizer step
     for i in range(1, max_epochs +1):
@@ -213,7 +213,7 @@ def main():
         optimizer.zero_grad()
         # calls compute_loss from ImplicitSOC 
         z_batch = problem.sample_initial_condition()
-        loss, running_cost, terminal_cost, cHJB, cHJBfin, cadj, cadjfin, largest_grad_H_u, avg_grad_H_u = problem.compute_loss(u_net_implicit, z0)
+        loss, running_cost, terminal_cost, cHJB, cHJBfin, cadj, cadjfin, largest_grad_H_u, avg_grad_H_u = problem.compute_loss(u_net_implicit, z_batch)
         # plotting trajectories
         z_traj = problem.generate_trajectory(u_net_implicit, z_batch, nt, return_full_trajectory=True)
         problem.plot_trajectories(z_traj.detach())
@@ -225,7 +225,7 @@ def main():
         # The scheduler is using the loss calculated before the parameter update.
         optimizer.step()
         scheduler.step(loss.item())
-        if i % plot_frequency == 0:
+        if i % plot_frequency == 0 or i == max_epochs:
             z_traj = problem.generate_trajectory(u_net_implicit, z_batch, nt, return_full_trajectory=True)
             problem.plot_trajectories(z_traj.detach())
 
