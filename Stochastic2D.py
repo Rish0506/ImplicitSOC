@@ -189,12 +189,7 @@ def main():
     print(f"State Dimension: {state_dim}, Control Dimension: {control_dim}")
     # constructs Phi_net from ImplicitNets
     Phi_net = Phi(3,10,state_dim, dev = device)
-    with torch.no_grad():
-        Phi_net.A.zero_()
-        Phi_net.w.weight.zero_()
-        Phi_net.c.weight.zero_()
-        Phi_net.c.weight[0, 0] = 4.9
-        Phi_net.c.weight[0, 1] = 4.9
+    
     u_net_implicit = ImplicitNetSOC(state_dim = state_dim, control_dim=control_dim,hidden_dim = 512, tol=1e-3, soc_problem = problem, 
                                     p_net = Phi_net, use_aa=False).to(device)
     # plotting the traj
