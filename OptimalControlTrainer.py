@@ -282,7 +282,7 @@ class OptimalControlTrainer:
                 if verbose: print(f"    -> New best model saved to {save_path} with loss {best_loss:.4e}")
 
             if plot_frequency and epoch % plot_frequency == 0:
-                z_traj = self.soc_problem.generate_trajectory(self.policy, z0,self.oc_problem.nt, return_full_trajectory=True)
+                z_traj = self.soc_problem.generate_trajectory(self.policy, z0,self.soc_problem.nt, return_full_trajectory=True)
                 self.soc_problem.plot_trajectories(z_traj.detach(), self.policy)
 
             # === Save CSV after each epoch ===
