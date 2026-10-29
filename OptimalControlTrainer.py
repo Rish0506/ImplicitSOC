@@ -218,8 +218,7 @@ class OptimalControlTrainer:
         if not os.path.exists(save_dir): os.makedirs(save_dir)
         save_path = os.path.join(save_dir, f'{save_model_name}.pth')
         # === Save CSV after each epoch ===
-        os.makedirs(save_dir, exist_ok=True)
-        pd.DataFrame(self.history).to_csv(history_path, index=False)
+        
         history_path = os.path.join(save_dir, f'history_{save_model_name}.csv')
         print(f"Starting training in '{self.mode}' mode for {num_epochs} epochs. Results in '{save_dir}'")
         print("-" * 60)
