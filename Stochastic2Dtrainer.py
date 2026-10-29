@@ -74,7 +74,7 @@ def run_s2d_jfb(config_oc, config_train, full_AD_mode=False, device="cpu", plot_
         save_model_name = f"best_policy_FullAD_BatchSize_{config_oc['batch_size']}_nt_{config_oc['nt']}_{time.ctime().replace(' ','_').replace(':','_')}"
 
     z0_std = stochastic2D_std.sample_initial_condition()
-    trainer_std.train(z0_std, num_epochs=config_train['epochs'], plot_frequency=None, save_model_name=save_model_name)
+    trainer_std.train(z0_std, num_epochs=config_train['epochs'], plot_frequency=25, save_model_name=save_model_name)
 
 # def run_s2d_jbb(config_oc,config_train, device="cpu", plot_frequency=None):
 #     """

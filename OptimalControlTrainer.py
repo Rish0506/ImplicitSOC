@@ -243,9 +243,9 @@ class OptimalControlTrainer:
             grad_norm = sum(p.grad.norm().item()**2 for p in self.policy.parameters() if p.grad is not None)**0.5
 
             tracked = getattr(self.policy, 'tracked_iters', 1)
-            work_units = self.soc_problem.batch_size*tracked
+            work_units = self.soc_problem.batch_size*self.soc_problem.nt*tracked
             if (step_info['max_fp_itrs'] < tracked) or self.soc_problem.track_all_fp_iters:
-                work_units = self.soc_problem.batch_size*step_info['max_fp_itrs']
+                work_units = self.soc_problem.batch_size*self.soc_problem.nt*step_info['max_fp_itrs']
             
 
             # This loop correctly populates the full history dict
@@ -279,14 +279,13 @@ class OptimalControlTrainer:
                 torch.save(self.policy.state_dict(), save_path)
                 if verbose: print(f"    -> New best model saved to {save_path} with loss {best_loss:.4e}")
 
-            if plot_frequency and epoch % plot_frequency == 10:
-                z_traj = self.soc_problem.generate_trajectory(self.policy, z0,
-                                                             self.oc_problem.nt, return_full_trajectory=True)
+            if plot_frequency and epoch % plot_frequency == 0:
+                z_traj = self.soc_problem.generate_trajectory(self.policy, z0,self.oc_problem.nt, return_full_trajectory=True)
                 self.soc_problem.plot_trajectories(z_traj.detach(), self.policy)
 
             # === Save CSV after each epoch ===
             pd.DataFrame(self.history).to_csv(history_path, index=False)
-        #self.plot_loss_curve(save_dir, save_model_name)
+        self.plot_loss_curve(save_dir, save_model_name)
         return self.history
     
     def plot_loss_curve(self, save_dir, save_model_name):
