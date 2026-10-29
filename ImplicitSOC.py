@@ -696,8 +696,9 @@ class ImplicitSOC(ABC):
                 
                 # Accumulates step cost multiplied by h.
                 running_cost = running_cost + self.h * self.compute_lagrangian(t_i, z, u_i)
-                cadj = cadj + torch.mean(gradPhi[:,:self.state_dim] - self.h * self.compute_grad_H_z(t_i, z, u_i, gradPhi[:,:self.state_dim]) -  torch.bmm(q_i, dW_i.unsqueeze(-1)).squeeze(-1))
-                cHJB = cHJB + torch.mean(phi_t[:,:,i].reshape(batch_size) - self.h*self.compute_H(t_i, z, u_i, gradPhi[:,:self.state_dim],compute_general_H=False).view(-1,1))
+                cadj = cadj + torch.mean(gradPhi[:,:self.state_dim] - self.h * self.compute_grad_H_z(t_i, z, u_i, gradPhi[:,:self.state_dim], phi_net=u.pnet
+                ) -  torch.bmm(q_i, dW_i.unsqueeze(-1)).squeeze(-1))
+                cHJB = cHJB + torch.mean(phi_t[:,:,i].reshape(batch_size) - self.h*self.compute_H(t_i, z, u_i, gradPhi[:,:self.state_dim],phi_net=u.p_net,compute_general_H=False).view(-1,1))
 
                 t_i = t_i + self.h
 
@@ -736,10 +737,10 @@ class ImplicitSOC(ABC):
                     running_cost = running_cost + self.h * self.compute_lagrangian(t_i, z, u_i)                    
                     gradPhi = u.p_net(t_i, z, full_grad=True)
 
-                    cadj = cadj + torch.mean(gradPhi[:,:self.state_dim]- self.h * self.compute_grad_H_z(t_i, z, u_i, gradPhi[:, :self.state_dim]) - torch.bmm(q_i, dW_i.unsqueeze(-1)).squeeze(-1))
+                    cadj = cadj + torch.mean(gradPhi[:,:self.state_dim]- self.h * self.compute_grad_H_z(t_i, z, u_i, gradPhi[:, :self.state_dim], phi_net=u.p_net) - torch.bmm(q_i, dW_i.unsqueeze(-1)).squeeze(-1))
 
                     if hasattr(u.p_net, "getPhi"):
-                        cHJB = cHJB + torch.mean(u.p_net.getPhi(t_i,z) - self.h*self.compute_H(t_i, z, u_i, -gradPhi[:,:self.state_dim],compute_general_H=False).view(-1,1))
+                        cHJB = cHJB + torch.mean(u.p_net.getPhi(t_i,z) - self.h*self.compute_H(t_i, z, u_i, -gradPhi[:,:self.state_dim],phi_net=u.p_net,compute_general_H=False).view(-1,1))
                         
 
                     grad_H_u = self.compute_grad_H_u(t_i,z, u_i, gradPhi[:,:self.state_dim])
