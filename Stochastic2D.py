@@ -89,7 +89,7 @@ class Stochastic2D(ImplicitSOC):
             else:
                 current_u = u[:,:,i]
 
-            sigma = self.compute_sigma(t_i, z[:,:,1], current_u)
+            sigma = self.compute_sigma(t_i, z[:,:,i], current_u)
             dW = (h**0.5) * torch.randn(batch_size, sigma.shape[2],device = self.device )
             noise_term = torch.bmm(sigma, dW.unsqueeze(-1)).squeeze(-1)
             z[:,:,i+1] = z[:,:,i] + h*self.compute_f(t_i, z[:,:,i], current_u) + noise_term

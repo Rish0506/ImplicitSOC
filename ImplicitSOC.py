@@ -494,7 +494,7 @@ class ImplicitSOC(ABC):
         batch_size = z.shape[0]
         nt = z.shape[2] 
         p = torch.zeros(batch_size, self.state_dim, nt)
-        p[:,:,-1] = -self.compute_grad_G_z(z[:,:,-1])
+        p[:,:,-1] = self.compute_grad_G_z(z[:,:,-1])
         h = (self.t_final - self.t_initial)/nt
         t_i = self.t_final
         for i in range(nt-2, -1, -1):

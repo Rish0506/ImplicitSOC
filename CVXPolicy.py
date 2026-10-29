@@ -25,12 +25,12 @@ class CVXPolicy_S2D(nn.Module):
             self.p_net = DefaultPNet(state_dim, hidden_dim=100, dev = dev)
 
         # use CVXPY Layer to solve for control u* that minimize the Hamiltonian
-        # H = tr(sigma^T q) + f^T p - L(u)
+        # H = -tr(sigma^T q) - f^T p - L(u)
 
         u_cp = cp.Variable(control_dim)
         p_cp = cp.Parameter(state_dim)
         # Objective function 
-        obj_cp = cp.Minimize(-p_cp @ u_cp + 0.5*cp.sum_squares(u_cp)+(1/20)*cp.power(cp.sum_squares(u_cp)+1e-3,1.5))
+        obj_cp = cp.Minimize(p_cp @ u_cp + 0.5*cp.sum_squares(u_cp)+(1/20)*cp.power(cp.sum_squares(u_cp)+1e-3,1.5))
         self.u_layer = CvxpyLayer(cp.Problem(obj_cp),[p_cp], [u_cp])
 
     def forward(self, z, t, track_all_fp_iters=False):
