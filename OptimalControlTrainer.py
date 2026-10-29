@@ -282,13 +282,13 @@ class OptimalControlTrainer:
                 if verbose: print(f"    -> New best model saved to {save_path} with loss {best_loss:.4e}")
 
             # Plot: trajectories every plot_frequency epochs, saved into save_dir with the epoch in the name
-                if plot_frequency and epoch % plot_frequency == 0:
-                    self.policy.eval()
-                    with torch.no_grad():
-                        z_traj = self.soc_problem.generate_trajectory(self.policy, z0,
+            if plot_frequency and epoch % plot_frequency == 0:
+                self.policy.eval()
+                with torch.no_grad():
+                    z_traj = self.soc_problem.generate_trajectory(self.policy, z0,
                                                                     self.soc_problem.nt, return_full_trajectory=True)
-                    self.soc_problem.plot_trajectories(z_traj.detach(), filename=os.path.join(save_dir, f'trajectories_{save_model_name}_epoch{epoch:04d}.png'))
-                    self.policy.train()
+                self.soc_problem.plot_trajectories(z_traj.detach(), filename=os.path.join(save_dir, f'trajectories_{save_model_name}_epoch{epoch:04d}.png'))
+                self.policy.train()
 
             # === Save CSV after each epoch ===
             pd.DataFrame(self.history).to_csv(history_path, index=False)

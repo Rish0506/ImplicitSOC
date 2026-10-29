@@ -101,7 +101,7 @@ class Stochastic2D(ImplicitSOC):
         noise = torch.randn(int(self.batch_size), self.state_dim, device=self.device)
         return self.ic_mean + math.sqrt(self.ic_var)*noise
 
-    def plot_trajectories(self, z, z_target=None):
+    def plot_trajectories(self, z, z_target=None, filename="trajectories.png"):
         if z_target is None:
             z_target = self.z_target
             # Plot: contour of the Gaussian bump Q so the reader sees why the paths bend around the origin
@@ -127,7 +127,7 @@ class Stochastic2D(ImplicitSOC):
         plt.grid(True)
         plt.legend()
         plt.tight_layout()
-        plt.savefig("trajectories.png", dpi=150, bbox_inches="tight")
+        plt.savefig(filename, dpi=150, bbox_inches="tight")
         plt.close()
 
 def main():
