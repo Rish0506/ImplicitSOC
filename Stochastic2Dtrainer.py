@@ -31,13 +31,19 @@ class Logger(object):
     # That's why logger sometimes is called a tee: it duplicated the output.
     def write(self, message):
         self.terminal.write(message)
-        self.log.write(message)
+        try:
+            self.log.write(message)
+        except OSError:
+            pass
 
     # def flush(self) is a method used to force the write buffer to empty its contents directly into the stream or file.
     # or flush() asks both streams to push any buffered text out immediately
     def flush(self):
         self.terminal.flush()
-        self.log.flush()
+        try:
+            self.log.flush()
+        except OSError:
+            pass
 
 # This replaces Python’s usual standard-output stream with the logger. After this line, print(...) writes to both the terminal and that file.
 # this happens as son as Python loads the file         
