@@ -151,7 +151,7 @@ class OptimalControlTrainer:
         # Copy weights to compute gradient using full AD as well as JFB for angle computation
         #policy_AD = copy.deepcopy(self.policy) 
         # === CHANGE: Unpack all values from compute_loss ===
-        total_cost, run_cost, term_cost, cHJB, cHJBfin, cadj, cadjfin, max_grad_H, avg_grad_H, smallest_M_sdval, largest_M_sdval, smallest_lambda_min, largest_lambda_max, max_grad_T_u, avg_grad_T_u, sd_grad_T_u = self.oc_problem.compute_loss_verify(self.policy, z0)
+        total_cost, run_cost, term_cost, cHJB, cHJBfin, cadj, cadjfin, max_grad_H, avg_grad_H, smallest_M_sdval, largest_M_sdval, smallest_lambda_min, largest_lambda_max, max_grad_T_u, avg_grad_T_u, sd_grad_T_u = self.soc_problem.compute_loss_verify(self.policy, z0)
         #og_full_AD = self.oc_problem.track_all_fp_iters
         #self.oc_problem.track_all_fp_iters = True
         #total_cost_ad, run_cost_ad, term_cost_ad, cHJB_ad, cHJBfin_ad, cadj_ad, cadjfin_ad, max_grad_H_ad, avg_grad_H_ad = self.oc_problem.compute_loss(policy_AD, z0)
@@ -279,7 +279,7 @@ class OptimalControlTrainer:
                 torch.save(self.policy.state_dict(), save_path)
                 if verbose: print(f"    -> New best model saved to {save_path} with loss {best_loss:.4e}")
 
-            if plot_frequency and epoch % plot_frequency == 0:
+            if plot_frequency and epoch % plot_frequency == 10:
                 z_traj = self.soc_problem.generate_trajectory(self.policy, z0,
                                                              self.oc_problem.nt, return_full_trajectory=True)
                 self.soc_problem.plot_trajectories(z_traj.detach(), self.policy)
