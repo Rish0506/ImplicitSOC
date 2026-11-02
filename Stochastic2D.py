@@ -10,7 +10,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
 
 class Stochastic2D(ImplicitSOC):
-    def __init__(self, batch_size=50, t_initial=0.0, t_final=1.0, nt=250, alphaL=1.0, alphaG=1.0, device='cpu', ic_mean=[-2.5,-2.5], ic_var = 0.4, sigma=None, pen_pos = False):
+    def __init__(self, batch_size=50, t_initial=0.0, t_final=1.0, nt=250, alphaL=1.0, alphaG=1.0, device='cpu', ic_mean=[-2.5,-2.5], ic_var = 0, sigma=None, pen_pos = False):
         state_dim =2 
         control_dim = 2
         noise_dim = 2
