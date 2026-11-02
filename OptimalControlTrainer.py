@@ -290,7 +290,7 @@ class OptimalControlTrainer:
                 if verbose: print(f"    -> New best model saved to {save_path} with loss {best_loss:.4e}")
 
             # Plot: trajectories every plot_frequency epochs, saved into save_dir with the epoch in the name
-            if plot_frequency and (epoch % plot_frequency == 0 or epoch == num_epochs):
+            if plot_frequency and epoch % plot_frequency == 0:
                 self.policy.eval()
                 with torch.no_grad():
                     z_traj = self.soc_problem.generate_trajectory(self.policy, z0,

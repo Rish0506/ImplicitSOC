@@ -117,7 +117,7 @@ class Stochastic2D(ImplicitSOC):
             plt.plot(x,y,alpha=0.7)
 
         # Plot: initial states and final states
-        plt.figure(figsize=(7, 7))
+
         plt.scatter(z[:,0,0].detach().cpu(), z[:,1,0].detach().cpu(), s=12, c="k", label="z(0)")
         plt.scatter(z[:,0,-1].detach().cpu(), z[:,1,-1].detach().cpu(), s=12, c="b", marker="x", label="z(T)")
         target = z_target[0].detach().cpu().numpy()
@@ -127,7 +127,7 @@ class Stochastic2D(ImplicitSOC):
         plt.title("Stochastic 2D trajectories")
         plt.grid(True)
         plt.legend()
-        plt.gca().set_aspect('equal', adjustable='box')
+        
         plt.tight_layout()
         plt.savefig(filename, dpi=150, bbox_inches="tight")
         plt.close()
