@@ -124,7 +124,7 @@ def main():
     parser.add_argument("--batch_size", type=int, default=64, help="Trajectories per step (default: 32)")
     parser.add_argument("--nt", type=int, default=20, help="Time steps on [0, t_final] (default: 20)")
     parser.add_argument("--t_final", type=float, default=1.0, help="Horizon (default: 1.0)")
-    parser.add_argument("--epochs", type=int, default=30, help="Epochs per trial (default: 500)")
+    parser.add_argument("--epochs", type=int, default=2, help="Epochs per trial (default: 500)")
     parser.add_argument("--lr", type=float, default=1.0e-2, help="Adam learning rate (default: 1e-3)")
     parser.add_argument("--n_trials", type=int, default=1, help="Repeated runs. The seed is set once (default: 1)")
     parser.add_argument("--hidden", type=int, default=64, help="Phi hidden width (default: 64)")

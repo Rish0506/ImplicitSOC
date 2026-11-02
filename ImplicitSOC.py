@@ -267,7 +267,7 @@ class ImplicitSOC(ABC):
             "compute_sigma(t,z,u) must return a tensor of shape"
             "(batch_size, state_dim, noise_dim)"
             )
-        z_hess = z.clone().detach().requires_grad_(True)
+        z_hess = z.clone().requires_grad_(True)
         # the value function is a tensor
         value_function = phi_net.getPhi(t, z_hess)
         grad_V = torch.autograd.grad(value_function.sum(), z_hess, create_graph=True, retain_graph=True)[0]
@@ -423,37 +423,37 @@ class ImplicitSOC(ABC):
         
         return grad_H_u_val
 
-    # def compute_grad_H_u_(self, t, z, u, p, grad_f_u_term):
-    #     """
-    #     Compute the non-batch gradient of the Hamiltonian with respect to control.
+    def compute_grad_H_u_(self, t, z, u, p, grad_f_u_term):
+        """
+        Compute the non-batch gradient of the Hamiltonian with respect to control.
 
-    #     Args:
-    #         t (torch.Tensor or float): Current time
-    #         z (torch.Tensor): State vector of shape (state_dim,)
-    #         u (torch.Tensor): Control input of shape (control_dim,)
-    #         p (torch.Tensor): Costate vector of shape (state_dim,)
-    #         grad_f_u_term: gradient of f with respect to u of shape (control_dim, state_dim)
+        Args:
+            t (torch.Tensor or float): Current time
+            z (torch.Tensor): State vector of shape (state_dim,)
+            u (torch.Tensor): Control input of shape (control_dim,)
+            p (torch.Tensor): Costate vector of shape (state_dim,)
+            grad_f_u_term: gradient of f with respect to u of shape (control_dim, state_dim)
 
-    #     Returns:
-    #         torch.Tensor: Gradient of H w.r.t. u of shape (control_dim,)
-    #     """
-    #     """ Compute gradient of Lagrangian """
-    #     grad_term1 = -1.0*self.compute_grad_lagrangian_(t, z, u)
+        Returns:
+            torch.Tensor: Gradient of H w.r.t. u of shape (control_dim,)
+        """
+        """ Compute gradient of Lagrangian """
+        grad_term1 = -self.compute_grad_lagrangian_(t, z, u)
 
-    #     """ Compute gradient of dynamics """
-    #     grad_f_u_term = -1.0*self.compute_grad_f_u_(z, u, grad_f_u_term)
+        """ Compute gradient of dynamics """
+        grad_f_u_term = -self.compute_grad_f_u_(z, u, grad_f_u_term)
 
-    #     """ Compute gradient of p^T f w.r.t. u """
-    #     grad_term2 = torch.matmul(grad_f_u_term, p)
-    #     """ Compute gradient of diffusion term w.r.t. u """
-    #     grad_sigma_u_term = -1.0*self.compute_grad_sigma_u(t, z, u)
-    #     grad_V, q = self.compute_q(t, z, u, u.p_net)
-    #     grad_term3 = torch.matmul(grad_sigma_u_term, q)
+        """ Compute gradient of p^T f w.r.t. u """
+        grad_term2 = torch.matmul(grad_f_u_term, p)
+        """ Compute gradient of diffusion term w.r.t. u """
+        grad_sigma_u_term = -1.0*self.compute_grad_sigma_u(t, z, u)
+        grad_V, q = self.compute_q(t, z, u, u.p_net)
+        grad_term3 = torch.matmul(grad_sigma_u_term, q)
 
-    #     """ Compute total gradient """
-    #     grad_H_u_val = grad_term1 + grad_term2 + grad_term3
+        """ Compute total gradient """
+        grad_H_u_val = grad_term1 + grad_term2 + grad_term3
 
-    #     return grad_H_u_val
+        return grad_H_u_val
 
     def compute_grad_H_z(self, t, z, u, p, phi_net):
         """
@@ -480,7 +480,7 @@ class ImplicitSOC(ABC):
         output = -grad_L_z_term - torch.bmm(grad_f_z_term, p.unsqueeze(-1)).view(batch_size, self.state_dim) - torch.einsum('bijk,bij->bk', grad_sigma_z_term, q).view(batch_size, self.state_dim)
         return output
     
-    def solve_adjoint_eq(self, z, u, phi_net, dW=None):
+    def solve_adjoint_eq(self, z, u, phi_net, dW):
         """
         Compute the adjoint equation for the Hamiltonian
         
@@ -495,7 +495,7 @@ class ImplicitSOC(ABC):
         nt = z.shape[2] 
         p = torch.zeros(batch_size, self.state_dim, nt)
         p[:,:,-1] = self.compute_grad_G_z(z[:,:,-1])
-        h = (self.t_final - self.t_initial)/nt
+        h = (self.t_final - self.t_initial)/(nt-1)
         t_i = self.t_final
         for i in range(nt-2, -1, -1):
             # if u is precomputed 
@@ -504,8 +504,8 @@ class ImplicitSOC(ABC):
                 u_i = u[:,:,i].view(batch_size, self.control_dim)
             # u is calculated using training.
             elif hasattr(u, 'forward'):
-                u_i = u(z[:,:,i],t_i)
-            H_z_i = self.compute_grad_H_z(t_i, z[:,:,i], u_i, p[:,:,i+1],phi_net)
+                u_i = u(z[:,:,i],t_i).view(batch_size, self.control_dim)
+            H_z_i = self.compute_grad_H_z(t_i, z[:,:,i+1], u_i, p[:,:,i+1],phi_net)
             _ , q_i = self.compute_q(t_i, z[:,:,i], u_i, phi_net)
             dW_i = dW[:,:,i]
             q_dW_i = torch.bmm(q_i, dW_i.unsqueeze(-1)).squeeze(-1)
@@ -536,11 +536,12 @@ class ImplicitSOC(ABC):
         avg_grad_H_u = 0.0
         Identity = torch.eye(self.state_dim,device=z0.device,dtype=z0.dtype,).unsqueeze(0).expand(batch_size, -1, -1)
         z = z0
-        t_i = 0
+        t_i = self.t_initial
         # Integrate system using Euler's method
         if jac_based:
             # verifies tensor dimensions along time axis match discretization steps nt
-            # nt control intervals and n1+1 discrete time grid nodes for z_k, p_k and value fun.
+            # nt control intervals and nt+1 discrete time grid nodes for z_k, p_k and value fun.
+            # number of subintervals = nt 
             assert self.nt == u.shape[2] and self.nt+1 == z_t.shape[2] \
             and self.nt+1 == p_t.shape[2] and self.nt+1 == phi_t.shape[2]
             # loop over time index i = 0, 1,..., n1-1
@@ -580,7 +581,7 @@ class ImplicitSOC(ABC):
                 for i in range(self.nt):
                     u_i = u[:, :, i].view(batch_size, self.control_dim)
                     f_i = self.compute_f(t_i, z, u_i)
-                    sigma_i = self.compute_sigma(t_i, z)
+                    sigma_i = self.compute_sigma(t_i, z, u_i)
                     dW_i = self.sample_dW(z, sigma_i)
                     z = z + self.h * f_i + torch.bmm(sigma_i, dW_i.unsqueeze(-1)).squeeze(-1)
                     running_cost = running_cost + self.h * self.compute_lagrangian(t_i, z, u_i)
@@ -600,7 +601,7 @@ class ImplicitSOC(ABC):
                     f_i = self.compute_f(t_i, z, u_i)
                     sigma_i = self.compute_sigma(t_i, z, u_i)
                     dW_i = self.sample_dW(z, sigma_i)
-                    z = z + self.h * f_i + torch.bmm(sigma_i, dW_i.unsqueeze(-1)).squeeze(-1)
+
                     running_cost = running_cost + self.h * self.compute_lagrangian(t_i, z, u_i)
 
                     # Only compute HJB and adjoint for implicit control methods
@@ -620,6 +621,8 @@ class ImplicitSOC(ABC):
                         avg_grad_H_u += torch.mean(torch.linalg.vector_norm(grad_H_u, ord=2, dim=1)).item()
                         if max_norm_grad_H_u > largest_grad_H_u:
                             largest_grad_H_u = max_norm_grad_H_u
+
+                    z = z + self.h * f_i + torch.bmm(sigma_i, dW_i.unsqueeze(-1)).squeeze(-1)
                     
                     t_i = t_i + self.h
 
@@ -628,19 +631,20 @@ class ImplicitSOC(ABC):
 
             # Only compute terminal HJB and adjoint for implicit control methods
                 if not is_direct_control:
+                    gradPhi = u.p_net(self.t_final, z, full_grad=True)
 
                     if self.pen_pos:
                         if self.oc_problem_name in ( "Double Integrator", "Multi Quadcopter"):
-                            gradPhi_p = (-gradPhi[:,:self.state_dim].reshape(batch_size * self.num_agents, -1)[:, :3])
-                            cadjfin = torch.mean(gradPhi_p.reshape(batch_size,-1) + self.compute_grad_G_z(z))
+                            gradPhi_p = (gradPhi[:,:self.state_dim].reshape(batch_size * self.num_agents, -1)[:, :3])
+                            cadjfin = torch.mean(gradPhi_p.reshape(batch_size,-1) - self.compute_grad_G_z(z))
                         elif self.oc_problem_name == "Multi Bicycle":
-                            gradPhi_p = (-gradPhi[:,:self.state_dim].reshape(batch_size * self.num_agents, -1)[:, :2])
-                            cadjfin = torch.mean(gradPhi_p.reshape(batch_size,-1) + self.compute_grad_G_z(z))
+                            gradPhi_p = (gradPhi[:,:self.state_dim].reshape(batch_size * self.num_agents, -1)[:, :2])
+                            cadjfin = torch.mean(gradPhi_p.reshape(batch_size,-1) - self.compute_grad_G_z(z))
                         elif self.oc_problem_name == "Single Quadcopter":
-                            gradPhi_p = (-gradPhi[:,:self.state_dim].reshape(batch_size * self.num_agents, -1)[:, :3])
-                            cadjfin = torch.mean(gradPhi_p.reshape(batch_size,-1) + self.compute_grad_G_z(z))
+                            gradPhi_p = (gradPhi[:,:self.state_dim].reshape(batch_size * self.num_agents, -1)[:, :3])
+                            cadjfin = torch.mean(gradPhi_p.reshape(batch_size,-1) - self.compute_grad_G_z(z))
                     else:
-                        cadjfin = cadjfin + torch.mean(-gradPhi[:,:self.state_dim] + self.compute_grad_G_z(z) )
+                        cadjfin = cadjfin + torch.mean(gradPhi[:,:self.state_dim] - self.compute_grad_G_z(z) )
 
                     if hasattr(u.p_net, "getPhi"):                    
                         cHJBfin = torch.mean(torch.linalg.vector_norm(u.p_net.getPhi(t_i,z) - self.alphaG*temp_final_cost.view(-1, 1), ord=2, dim=1))
@@ -709,7 +713,7 @@ class ImplicitSOC(ABC):
             z_temp = z.view(batch_size*self.num, -1)
             z_target_temp = self.z_target.reshape(batch_size*self.num, -1)
             diff_p = (z_temp[:,:2] - z_target_temp[:,:2]).view(batch_size,-1)
-            G = 0.5*torch.norm(diff_p, dim=1)**2            
+            G = 50*torch.norm(diff_p, dim=1)**2            
             cadjfin = cadjfin + torch.mean(gradPhi[:,:self.state_dim] - self.compute_grad_G_z(z) )
             cHJBfin = torch.mean(torch.abs(phi_t[:,:,i+1] - temp_final_cost.view(-1, 1)))
         
@@ -721,8 +725,9 @@ class ImplicitSOC(ABC):
                     f_i = self.compute_f(t_i, z, u_i)
                     sigma_i = self.compute_sigma(t_i, z)
                     dW_i = self.sample_dW(z, sigma_i)
-                    z = z + self.h * f_i + torch.bmm(sigma_i, dW_i.unsqueeze(-1)).squeeze(-1)
+                    _, q_i = self.compute_q(t_i, z, u_i, phi_net=u.p_net)
                     running_cost = running_cost + self.h * self.compute_lagrangian(t_i, z, u_i)
+                    z = z + self.h * f_i + torch.bmm(sigma_i, dW_i.unsqueeze(-1)).squeeze(-1)
                     t_i = t_i + self.h
                 temp_final_cost = self.compute_G(z)
                 terminal_cost = torch.mean(temp_final_cost)
@@ -733,7 +738,7 @@ class ImplicitSOC(ABC):
                     f_i = self.compute_f(t_i, z, u_i)
                     sigma_i = self.compute_sigma(t_i, z, u_i)
                     dW_i = self.sample_dW(z, sigma_i)
-                    z = z + self.h * f_i + torch.bmm(sigma_i, dW_i.unsqueeze(-1)).squeeze(-1)
+                    _, q_i = self.compute_q(t_i, z, u_i, phi_net=u.p_net)
                     running_cost = running_cost + self.h * self.compute_lagrangian(t_i, z, u_i)                    
                     gradPhi = u.p_net(t_i, z, full_grad=True)
 
@@ -769,6 +774,8 @@ class ImplicitSOC(ABC):
                     idx_max = torch.argwhere(norm_grad_T_u > largest_grad_T_u_batch).flatten()
                     largest_grad_T_u_batch[idx_max] = norm_grad_T_u[idx_max]
                     avg_grad_T_u += torch.mean(norm_grad_T_u).item()
+
+                    z = z + self.h * f_i + torch.bmm(sigma_i, dW_i.unsqueeze(-1)).squeeze(-1)
 
                     ti = ti + self.h
 

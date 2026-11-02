@@ -429,6 +429,10 @@ class ImplicitNetSOC(nn.Module, ABC):
         else:
             output = u
             return output
+        
+        # After forming the returned control, measure:\|T(u_returned)-u_returend\|/alpha
+        Residual_norm = (torch.norm(self.T(output, x, t) - output, dim=1).max())/self.alpha
+        print(f"Residual norm: {Residual_norm:.5e}")
 
     def set_convergence_tracking(self, track=True):
         """Enable or disable convergence tracking."""

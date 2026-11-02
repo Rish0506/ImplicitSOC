@@ -49,7 +49,7 @@ class LRScheduler:
         return self.current_epoch
 
     def get_prev_loss(self):
-        return self.get_prev_loss
+        return self.prev_loss
 
     def step(self, new_loss):
         self.current_epoch += 1
@@ -107,15 +107,19 @@ class OptimalControlTrainer:
         max_fp_itrs = 0.0
         max_fp_res_norm = 0.0
         
-        if self.mode == 'standard':
-            convergence_stats = self.policy.get_convergence_stats()
-            max_fp_itrs = convergence_stats['fp_depth']
-            max_fp_res_norm = convergence_stats['max_res_norm']
+        # if self.mode == 'standard':
+        #     convergence_stats = self.policy.get_convergence_stats()
+        #     max_fp_itrs = convergence_stats['fp_depth']
+        #     max_fp_res_norm = convergence_stats['max_res_norm']
 
         self.optimizer.zero_grad()
         # === CHANGE: Unpack all 7 values from compute_loss ===
         total_cost, run_cost, term_cost, cHJB, cHJBfin, cadj, cadjfin, max_grad_H, avg_grad_H = self.soc_problem.compute_loss(self.policy, z0)
         total_cost.backward()
+        if self.mode == 'standard':
+            convergence_stats = self.policy.get_convergence_stats()
+            max_fp_itrs = convergence_stats['fp_depth']
+            max_fp_res_norm = convergence_stats['max_res_norm']
         if self.enable_grad_clip:
             torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.grad_clip_value)
         self.optimizer.step()
@@ -141,10 +145,10 @@ class OptimalControlTrainer:
         max_fp_res_norm = 0.0
         angle = 0.0
         
-        if self.mode == 'standard':
-            convergence_stats = self.policy.get_convergence_stats()
-            max_fp_itrs = convergence_stats['fp_depth']
-            max_fp_res_norm = convergence_stats['max_res_norm']
+        # if self.mode == 'standard':
+        #     convergence_stats = self.policy.get_convergence_stats()
+        #     max_fp_itrs = convergence_stats['fp_depth']
+        #     max_fp_res_norm = convergence_stats['max_res_norm']
 
         self.optimizer.zero_grad()
 
@@ -157,6 +161,10 @@ class OptimalControlTrainer:
         #total_cost_ad, run_cost_ad, term_cost_ad, cHJB_ad, cHJBfin_ad, cadj_ad, cadjfin_ad, max_grad_H_ad, avg_grad_H_ad = self.oc_problem.compute_loss(policy_AD, z0)
         #self.oc_problem.track_all_fp_iters = og_full_AD
         total_cost.backward()
+        if self.mode == 'standard':
+            convergence_stats = self.policy.get_convergence_stats()
+            max_fp_itrs = convergence_stats['fp_depth']
+            max_fp_res_norm = convergence_stats['max_res_norm']
         if self.enable_grad_clip:
             torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.grad_clip_value)
         #total_cost_ad.backward()
@@ -282,7 +290,7 @@ class OptimalControlTrainer:
                 if verbose: print(f"    -> New best model saved to {save_path} with loss {best_loss:.4e}")
 
             # Plot: trajectories every plot_frequency epochs, saved into save_dir with the epoch in the name
-            if plot_frequency and epoch % plot_frequency == 0:
+            if plot_frequency and (epoch % plot_frequency == 0 or epoch == num_epochs):
                 self.policy.eval()
                 with torch.no_grad():
                     z_traj = self.soc_problem.generate_trajectory(self.policy, z0,
