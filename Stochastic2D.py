@@ -101,36 +101,36 @@ class Stochastic2D(ImplicitSOC):
         noise = torch.randn(int(self.batch_size), self.state_dim, device=self.device)
         return self.ic_mean + math.sqrt(self.ic_var)*noise
 
-    def plot_trajectories(self, z, z_target=None, filename="trajectories.png"):
-        if z_target is None:
-            z_target = self.z_target
-            # Plot: contour of the Gaussian bump Q so the reader sees why the paths bend around the origin
-        xs = torch.linspace(-3, 3, 149)
-        X, Y = torch.meshgrid(xs, xs, indexing="xy")
-        Qv = self.Q(torch.stack([X.reshape(-1), Y.reshape(-1)], 1).to(self.device)).reshape(X.shape)
-        plt.contourf(X.numpy(), Y.numpy(), Qv.detach().cpu().numpy(), levels=10, cmap="Reds", alpha=0.5)
-        plt.colorbar(label="Q(z)")
-        for b in range(z.shape[0]):
-            # extract x and y coorindates, detach them from autograd, cpu moves them from GPU if needed, .numpy() converts them fro matplotlib
-            x = z[b,0,:].detach().cpu().numpy()
-            y = z[b,1,:].detach().cpu().numpy()
-            plt.plot(x,y,alpha=0.7)
+def plot_trajectories(self, z, z_target=None, filename="trajectories.png"):
+    if z_target is None:
+        z_target = self.z_target
+    
+    xs = torch.linspace(-3, 3, 149)
+    X, Y = torch.meshgrid(xs, xs, indexing="xy")
+    Qv = self.Q(torch.stack([X.reshape(-1), Y.reshape(-1)], 1).to(self.device)).reshape(X.shape)
+    plt.contourf(X.numpy(), Y.numpy(), Qv.detach().cpu().numpy(), levels=10, cmap="Reds", alpha=0.5)
+    plt.colorbar(label="Q(z)")
+    
+    for b in range(z.shape[0]):
+        x = z[b,0,:].detach().cpu().numpy()
+        y = z[b,1,:].detach().cpu().numpy()
+        plt.plot(x, y, alpha=0.7)
 
-        # Plot: initial states and final states
-
-        plt.scatter(z[:,0,0].detach().cpu(), z[:,1,0].detach().cpu(), s=12, c="k", label="z(0)")
-        plt.scatter(z[:,0,-1].detach().cpu(), z[:,1,-1].detach().cpu(), s=12, c="b", marker="x", label="z(T)")
-        target = z_target[0].detach().cpu().numpy()
-        plt.scatter(target[0], target[1], marker="*", s=120, c="gold", edgecolors="k", label="Target", zorder=5)
-        plt.xlabel("x")
-        plt.ylabel("y")
-        plt.title("Stochastic 2D trajectories")
-        plt.grid(True)
-        plt.legend()
-        
-        plt.tight_layout()
-        plt.savefig(filename, dpi=150, bbox_inches="tight")
-        plt.close()
+    plt.scatter(z[:,0,0].detach().cpu(), z[:,1,0].detach().cpu(), s=12, c="k", label="z(0)")
+    plt.scatter(z[:,0,-1].detach().cpu(), z[:,1,-1].detach().cpu(), s=12, c="b", marker="x", label="z(T)")
+    
+    # Use the target corresponding to the batch element or mean target location
+    target = z_target[0].detach().cpu().numpy()
+    plt.scatter(target[0], target[1], marker="*", s=120, c="gold", edgecolors="k", label="Target", zorder=5)
+    plt.xlabel("x")
+    plt.ylabel("y")
+    plt.title("Stochastic 2D trajectories")
+    plt.grid(True)
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.savefig(filename, dpi=150, bbox_inches="tight")
+    plt.close()
 
 def main():
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
