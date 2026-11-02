@@ -23,11 +23,11 @@ class Stochastic2D(ImplicitSOC):
 
     def Q(self, z):
         z = z.view(-1, self.state_dim)
-        return  (50.0/(0.8*math.pi))*torch.exp(-0.5*torch.sum(z**2, dim=-1)/0.4)
+        return  (500.0/(0.8*math.pi))*torch.exp(-0.5*torch.sum(z**2, dim=-1)/0.4)
     def compute_grad_Q_z(self, z):
         z = z.view(-1, self.state_dim)
         z_sq = torch.sum(z**2, dim=-1, keepdim=True)
-        return -50.0/(0.8*math.pi)*torch.exp(-0.5*z_sq/0.4)*z/0.4
+        return -500.0/(0.8*math.pi)*torch.exp(-0.5*z_sq/0.4)*z/0.4
     def compute_f(self, t, z, u):
         u = u.view(-1, self.control_dim)
         #u_sq = torch.sum(u**2, dim=-1)
