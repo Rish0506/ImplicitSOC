@@ -49,7 +49,7 @@ class Logger(object):
 # this happens as son as Python loads the file         
 sys.stdout = Logger("results_Stochastic2D/stochastic2d_run.log")
 
-def run_s2d_jfb(config_oc, config_train, full_AD_mode=False, device="cpu", plot_frequency=None):
+def run_s2d_jfb(config_oc, config_train, full_AD_mode=False, device="cpu"):
     """
     Solves Stochastic2D optimal control problem with INN + JFB
     """
@@ -69,7 +69,7 @@ def run_s2d_jfb(config_oc, config_train, full_AD_mode=False, device="cpu", plot_
     phi_net = Phi(3, 96, stochastic2D_std.state_dim)
     tracked_iters = 1
     stochastic2D_std.track_all_fp_iters = full_AD_mode
-    implicit_net = ImplicitNetSOC(stochastic2D_std.state_dim, stochastic2D_std.control_dim, max_iters=int(50-tracked_iters), alpha=1e-1, tol=1e-2, tracked_iters=tracked_iters, soc_problem=stochastic2D_std, p_net=phi_net, dev=device).to(device)
+    implicit_net = ImplicitNetSOC(stochastic2D_std.state_dim, stochastic2D_std.control_dim, max_iters=int(100-tracked_iters), alpha=1e-1, tol=1e-2, tracked_iters=tracked_iters, soc_problem=stochastic2D_std, p_net=phi_net, dev=device).to(device)
     optimizer_std = torch.optim.Adam(implicit_net.parameters(), lr=config_train['lr'])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer_std, mode="min", factor=0.5, patience=40, min_lr=1e-4)
     trainer_std = OptimalControlTrainer(implicit_net, stochastic2D_std, optimizer_std, scheduler=scheduler, device=device)
@@ -115,7 +115,7 @@ def main():
     )
     parser.add_argument('--no_train_jfb',action='store_false',dest='train_jfb',help='Skip the JFB run',)
 
-    parser.add_argument('--train_full_ad',action='store_true',default=False,
+    parser.add_argument('--train_full_ad',action='store_true',default=True,
         help='Train with full automatic differentiation',)
     
     # parser.add_argument('--train_jbb',action='store_true',default=False,

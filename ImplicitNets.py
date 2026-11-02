@@ -192,7 +192,7 @@ class Phi(PNet):
         u.append(N.act(opening)) # u0
         feat = u[0]
 
-        # Runs the remaining residula updates and stores each intermediate feature
+        # Runs the remaining residual updates and stores each intermediate feature
         for i in range(1,N.nTh):
             feat = feat + N.h * N.act(N.layers[i](feat))
             u.append(feat)
@@ -430,9 +430,6 @@ class ImplicitNetSOC(nn.Module, ABC):
             output = u
             return output
         
-        # After forming the returned control, measure:\|T(u_returned)-u_returend\|/alpha
-        Residual_norm = (torch.norm(self.T(output, x, t) - output, dim=1).max())/self.alpha
-        print(f"Residual norm: {Residual_norm:.5e}")
 
     def set_convergence_tracking(self, track=True):
         """Enable or disable convergence tracking."""
@@ -464,6 +461,7 @@ class ImplicitNetSOC(nn.Module, ABC):
             Fixed point of T_eval, last residual, and number of iterations
         """
         batch_sz, d = u0.shape
+        # Create storage for last m iterates of u and T(u)
         u_hist = torch.zeros(batch_sz, m, d, dtype=u0.dtype, device=u0.device)
         T_hist = torch.zeros(batch_sz, m, d, dtype=u0.dtype, device=u0.device)
         u_hist[:,0] = u0.view(batch_sz, -1)
@@ -580,238 +578,3 @@ class ImplicitNetSOC(nn.Module, ABC):
             res_k = torch.norm(fk, dim=1).max().item()
             k += 1
         return uk, res_k, k
-
-class ImplicitNetSOC_pos(ImplicitNetSOC, ABC):
-    """
-    Similar to ImplicitNetOC, but enforces   u – h > 0 for the optimal consumption example
-    by optimising in a r := u − h and 
-    mapping u = h + softplus_beta(r) with beta > 0.
-    """
-
-    def __init__(
-        self,
-        *args,
-        beta: float = 5.0,          # temperature of the soft-plus
-        **kwargs,
-    ):
-        super().__init__(*args, **kwargs)
-        self.beta = beta         
-
-    #  T-operator (operates on raw r, not on u)
-    def T(self, r, x, t):
-        """
-        r-space update:  r_new = r - alpha * (dH/dr).
-
-        Parameters
-        ----------
-        r : tensor (B, m)   current raw variable  (u − h)
-        x : tensor (B, state_dim)
-        t : scalar(float/tensor)
-        """
-        batch_size = x.shape[0]
-        t_scalar   = torch.ones(1, device=x.device) * t
-
-        # current habit
-        h = x[:, 1 : 1 + self.oc_problem.m]                   # (B, m)
-
-        # projected control (guaranteed > h)
-        u_proj = h + softplus(r, beta=self.beta)
-
-        # dH/du at projected control
-        with torch.enable_grad():
-            p = self.p_net(t, x)
-            grad_H_u = self.oc_problem.compute_grad_H_u(
-                t_scalar, x, u_proj, p
-            )                                                     # (B, m)
-
-        # chain-rule factor
-        sigma = torch.sigmoid(self.beta * r)
-
-        # gradient in raw space
-        grad_H_r = grad_H_u * sigma                           # (B, m)
-
-        return r - self.alpha * grad_H_r                     
-
-    def forward(
-        self,
-        x,
-        t,
-        verbose: bool = False,
-        max_res_out: bool = False,
-        track_all_fp_iters: bool = False,
-    ):
-        batch_size = x.shape[0]
-        m          = self.oc_problem.m
-
-        #u = h + softplus(0) > h
-        r = torch.zeros(batch_size, m, device=x.device, dtype=x.dtype)
-
-        converged     = False
-        max_res_norm  = float("inf")
-        n_max_iters   = 0
-
-        def find_fixed_point():
-            nonlocal r, converged, max_res_norm, n_max_iters
-            if not self.use_anderson:
-                for i in range(self.max_iters):
-                    r_old = r.clone()
-                    r = self.T(r, x, t)
-
-                    max_res_norm = torch.norm(r - r_old, dim=1).max()
-                    n_max_iters  = i
-                    if verbose:
-                        print(
-                            f"iter {i+1}, max raw res {max_res_norm:.5e}"
-                        )
-
-                    if max_res_norm < self.tol:
-                        converged = True
-                        if verbose:
-                            print(
-                                f"converged in {i+1} iters "
-                                f"res {max_res_norm:.5e}"
-                            )
-                        break
-                if verbose and not converged:
-                    print(
-                        f"did not converge in {self.max_iters} iters "
-                        f"res {max_res_norm:.5e}"
-                    )
-            else:
-                # Anderson acceleration on raw variable
-                r, r_prev, num_itr = self.anderson(
-                    r, x, t, self.tol, self.max_iters, beta=1.5
-                )
-                max_res_norm = torch.norm(r - r_prev, dim=1).max()
-                n_max_iters  = num_itr
-                if verbose:
-                    print(
-                        f"iter {num_itr}, max raw res {max_res_norm:.5e}"
-                    )
-                converged = max_res_norm < self.tol
-
-        if not track_all_fp_iters or not self.training:
-            with torch.no_grad():
-                find_fixed_point()
-        else:
-            find_fixed_point()
-
-        # store stats
-        if self.track_convergence:
-            self.last_fp_depth      = n_max_iters + 1
-            self.last_max_res_norm  = (
-                max_res_norm.item()
-                if torch.is_tensor(max_res_norm)
-                else max_res_norm
-            )
-            self.last_converged     = converged
-
-        # project to control space
-        h      = x[:, 1 : 1 + m]
-        u_star = h + softplus(r, beta=self.beta)
-        u_star = self.apply_control_limits(u_star)
-
-        if self.training:
-            for _ in range(self.tracked_iters):
-                r = self.T(r, x, t).detach()          
-
-            r = self.T(r, x, t)         
-            u_star = h + softplus(r, beta=self.beta)
-            u_star = self.apply_control_limits(u_star)
-        else:
-            u_star = h + softplus(r, beta=self.beta)
-            u_star = self.apply_control_limits(u_star)
-
-        if max_res_out:
-            return u_star, max_res_norm, n_max_iters
-        return u_star
-
-    
-    def anderson(self, u0, x, t, tol=1.0e-3, max_iters=100, m=5, beta=0.5, lam=1.0e-6):
-        """
-        Fixed-Point Iteration with Anderson acceleration 
-
-        Parameters:
-            T (callable): Operator being learned
-            u0 (torch.tensor): Initial guess
-            x,t (torch.tensor, float): Data 
-            tol (float): Error tolerance for convergence
-            m (int): Number of previous iterations to use in least-squares 
-               optimization problem
-            beta (float): Parameter in Anderson acceleration iteration, must be > 0
-            lam (float): Regularization parameter
-
-        Return:
-            Fixed point of T_eval, value of u after previous iteration, and number 
-            of iterations
-        """
-        batch_sz, d = u0.shape
-        u_hist = torch.zeros(batch_sz, m, d, dtype=u0.dtype, device=u0.device)
-        T_hist = torch.zeros(batch_sz, m, d, dtype=u0.dtype, device=u0.device)
-        u_hist[:,0] = u0.view(batch_sz, -1)
-        T_hist[:,0] = self.T(u0, x, t).view(batch_sz,-1)
-        u_hist[:,1] = T_hist[:,0]
-        T_hist[:,1] = self.T(T_hist[:,0].view_as(u0), x, t).view(batch_sz,-1)
-        H = torch.zeros(batch_sz, m+1, m+1, dtype=u0.dtype, device=u0.device)
-        H[:,0,1:] = 1.0
-        H[:,1:,0] = 1.0
-        Batch_RHS = torch.zeros(batch_sz, m+1, 1, dtype=u0.dtype, device=u0.device)
-        Batch_RHS[:,0] = 1.0 
-
-        k = 1
-        res_k = ((T_hist[:,k%m] - u_hist[:,k%m]).norm().item()) / (1.0e-9 + T_hist[:,k%m].norm().item())
-        k += 1
-        while (res_k > tol and k < max_iters):
-            M = min(k,m)
-            G = T_hist[:,:M] - u_hist[:,:M]
-            H[:,1:(M+1),1:(M+1)] = torch.bmm(G, G.transpose(1,2)) + lam*torch.eye(M, dtype=u0.dtype, device=u0.device)[None]
-
-            #Solve for alpha
-            alpha = None
-            try:
-                alpha = torch.linalg.solve(H[:,:(M+1),:(M+1)], Batch_RHS[:,:(M+1)])[:,1:(M+1),0]#Result is batch_sz x n
-            except RuntimeError:#If matrix is singular solve using Householder QR least squares
-                alpha = torch.linalg.lstsq(H[:,:(M+1),:(M+1)], Batch_RHS[:,:(M+1)])[0][:,1:(M+1)]
-
-            #Update data structures
-            u_hist[:,k%m] = (1.0-beta)*((alpha[:,None]@u_hist[:,:M])[:,0]) + beta*((alpha[:,None]@T_hist[:,:M])[:,0])
-            T_hist[:,k%m] = self.T(u_hist[:,k%m].view_as(u0), x, t).view(batch_sz, -1)
-            res_k = ((T_hist[:,k%m] - u_hist[:,k%m]).norm().item()) / (1.0e-9 + T_hist[:,k%m].norm().item())
-            k += 1
-
-        return u_hist[:,k%m].view_as(u0), u_hist[:,(k-1)%m].view_as(u0), k
-    
-class ImplicitNetSOC_MB(ImplicitNetSOC):
-    """
-    Similar to ImplicitNetOC, but with a different apply_control_limits()
-    function for use with the multi bicycleOC problem
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    def apply_control_limits(self, u):
-        """
-        Apply control limits to the control tensor if enabled.
-        For multibicycle problem, only angle of handlebars needs
-        to be clamped. Acceleration does not.
-        
-        Args:
-            u (torch.Tensor): Control tensor.
-            
-        Returns:
-            torch.Tensor: Clamped control tensor if limits are enabled, otherwise unchanged.
-        """
-        if self.use_control_limits:
-            u_clamped = torch.zeros_like(u)
-            u_clamped[:,0:self.oc_problem.control_dim:self.oc_problem.single_control_dim] = torch.clamp(u[:,0:self.oc_problem.control_dim:self.oc_problem.single_control_dim], self.u_min, self.u_max)
-            u_clamped[:,1:self.oc_problem.control_dim:self.oc_problem.single_control_dim] = u[:,1:self.oc_problem.control_dim:self.oc_problem.single_control_dim]
-            return u_clamped
-        else:
-            return u
-    
-
-
-
-
-
