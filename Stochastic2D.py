@@ -10,7 +10,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
 
 class Stochastic2D(ImplicitSOC):
-    def __init__(self, batch_size=50, t_initial=0.0, t_final=1.0, nt=250, alphaL=1.0, alphaG=1.0, device='cpu', ic_mean=[-1.5,-1.5], ic_var = 0.4, sigma=None, pen_pos = False):
+    def __init__(self, batch_size=50, t_initial=0.0, t_final=1.0, nt=250, alphaL=1.0, alphaG=1.0, device='cpu', ic_mean=[-2.5,-2.5], ic_var = 0.4, sigma=None, pen_pos = False):
         state_dim =2 
         control_dim = 2
         noise_dim = 2
@@ -23,11 +23,11 @@ class Stochastic2D(ImplicitSOC):
 
     def Q(self, z):
         z = z.view(-1, self.state_dim)
-        return  (500.0/(0.8*math.pi))*torch.exp(-0.5*torch.sum(z**2, dim=-1)/0.4)
+        return  (100.0/(0.8*math.pi))*torch.exp(-0.5*torch.sum(z**2, dim=-1)/0.4)
     def compute_grad_Q_z(self, z):
         z = z.view(-1, self.state_dim)
         z_sq = torch.sum(z**2, dim=-1, keepdim=True)
-        return -500.0/(0.8*math.pi)*torch.exp(-0.5*z_sq/0.4)*z/0.4
+        return -100.0/(0.8*math.pi)*torch.exp(-0.5*z_sq/0.4)*z/0.4
     def compute_f(self, t, z, u):
         u = u.view(-1, self.control_dim)
         #u_sq = torch.sum(u**2, dim=-1)

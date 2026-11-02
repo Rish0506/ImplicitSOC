@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import cvxpy as cp
+#Imports the differentiable optimization-layer class.
 from cvxpylayers.torch import CvxpyLayer 
 from ImplicitNets import DefaultPNet
 from ImplicitNets import Phi
@@ -27,14 +28,19 @@ class CVXPolicy_S2D(nn.Module):
         # use CVXPY Layer to solve for control u* that minimize the Hamiltonian
         # H = -tr(sigma^T q) - f^T p - L(u)
 
+        # the unknown variable
         u_cp = cp.Variable(control_dim)
+        # the parameters that we supply which can change between solver
         p_cp = cp.Parameter(state_dim)
         # Objective function 
+        # defined the objective function
         obj_cp = cp.Minimize(p_cp @ u_cp + 0.5*cp.sum_squares(u_cp)+(1/20)*cp.power(cp.sum_squares(u_cp)+1e-3,1.5))
+        # turns the problem into a differentiable layer 
         self.u_layer = CvxpyLayer(cp.Problem(obj_cp),[p_cp], [u_cp])
 
     def forward(self, z, t, track_all_fp_iters=False):
         p = self.p_net(t,z)
+        # provide p and solve for u.
         ustar, = self.u_layer(p, solver_args={'eps': self.tol})
 
         return ustar.to(dtype=z.dtype)
@@ -44,7 +50,7 @@ def example_Stochastic2D(batch_size, state_dim, control_dim, z0):
     u_star = policy(z0, 0.0)
     u_cp = cp.Variable(control_dim)
     p_cp = cp.Parameter(state_dim)
-    obj_cp = cp.Minimize(cp.sum(-p_cp @ u_cp  + 0.5*cp.sum_squares(u_cp)+(1/20)*cp.power(cp.sum_squares(u_cp)+1e-3,1.5)))
+    obj_cp = cp.Minimize(cp.sum(p_cp @ u_cp  + 0.5*cp.sum_squares(u_cp)+(1/20)*cp.power(cp.sum_squares(u_cp)+1e-3,1.5)))
     u_layer = CvxpyLayer(cp.Problem(obj_cp), [p_cp], [u_cp])
     p = policy.p_net(0.0,z0)
     ustar_dir, = u_layer(p, solver_args={"eps": 1e-3}) 

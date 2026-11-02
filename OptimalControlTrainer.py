@@ -348,7 +348,9 @@ class OptimalControlTrainer:
                       f"Grad: {grad_norm:.2e} | Time: {time_per_epoch:.2f}s | "
                       f"CPU Mem: {memory_MB:.1f}MB | Max CPU: {max_memory_MB:.1f}MB | "
                       f"GPU Mem: {gpu_memory_MB:.1f}MB | Max GPU: {gpu_max_memory_MB:.1f}MB | lr: {step_info['lr']:.3e} | "
-                      f"max_fp_itrs: {step_info['max_fp_itrs']} | res_norm: {step_info['max_fp_res_norm']:.3e} | max_grad_H: {step_info['max_grad_H']:.3e} | avg_grad_H: {step_info['avg_grad_H']:.3e} ")
+                      f"max_fp_itrs: {step_info['max_fp_itrs']} | res_norm: {step_info['max_fp_res_norm']:.3e} | max_grad_H: {step_info['max_grad_H']:.3e} | avg_grad_H: {step_info['avg_grad_H']:.3e} | ")
+                    #   f"smallest_lambda_min:{step_info.get('smallest_lambda_min',0):.3e} | largest_lambda_max:{step_info.get('largest_lambda_max',0):.3e} | "
+                    #   f"max_grad_T_u:{step_info.get('max_grad_T_u',0):.3e} | avg_grad_T_u:{step_info.get('avg_grad_T_u',0):.3e} | angle:{step_info.get('angle', 0):.3e}")
 
             # assign the current loss to prev_loss for the next epoch
             prev_loss = step_info['loss']
@@ -378,6 +380,12 @@ class OptimalControlTrainer:
             pd.DataFrame(self.history).to_csv(history_path, index=False)
         # Calls the loss-plotting method after the epoch loop.
         self.plot_loss_curve(save_dir, save_model_name)
+        # self.plot_loss_time_curve(save_dir, save_model_name)
+        # self.plot_loss_workunits_curve(save_dir, save_model_name)
+        # self.plot_memory_epoch_curve(save_dir, save_model_name)
+        # self.plot_max_T_u_epoch_curve(save_dir, save_model_name)
+        # self.plot_angle_epoch_curve(save_dir, save_model_name)
+
         # Returns the trainer’s history dictionary to the caller after training finishes.
         return self.history
     
@@ -387,6 +395,39 @@ class OptimalControlTrainer:
         plt.plot(self.history['epoch'], self.history['loss'], label='Total Loss')
         plt.title(f'Training Loss (Mode: {self.mode})'); plt.legend()
         plt.savefig(os.path.join(save_dir, f'loss_curve_{save_model_name}.png')); plt.close()
+
+    # def plot_loss_time_curve(self, save_dir, save_model_name):
+    #     plt.figure(figsize=(10,6)); plt.yscale('log'); plt.grid(True)
+    #     plt.plot(self.history['time'], self.history['loss'], label = 'Total Loss')
+    #     plt.title(f'Training loss vs time(Mode :{self.mode})'); plt.legend()
+    #     plt.savefig(os.path.join(save_dir, f'loss_time_curve_{save_model_name}.png')); plt.close
+
+    # def plot_loss_workunits_curve(self, save_dir, save_model_name):
+    #     plt.figure(figsize=(10,6)); plt.yscale('log'); plt.grid(True)
+    #     plt.plot(self.history['work_units'], self.history['loss'], label = 'Total Loss')
+    #     plt.title(f'Training loss vs Work units(Mode :{self.mode})'); plt.legend()
+    #     plt.savefig(os.path.join(save_dir, f'loss_workunits_curve_{save_model_name}.png')); plt.close
+
+    # def plot_memory_epoch_curve(self, save_dir, save_model_name):
+    #     plt.figure(figsize=(10,6)); plt.yscale('log'); plt.grid(True)
+    #     plt.plot(self.history['epoch'], self.history['gpu_max_memory_MB'], label = 'Memory')
+    #     plt.title(f'Memory vs time(Mode :{self.mode})'); plt.legend()
+    #     plt.savefig(os.path.join(save_dir, f'memory_epoch_curve_{save_model_name}.png')); plt.close
+
+    # def plot_max_T_u_epoch_curve(self, save_dir, save_model_name):
+    #     plt.figure(figsize=(10,6)); plt.yscale('log'); plt.grid(True)
+    #     plt.plot(self.history['epoch'], self.history['max_grad_T_u'], label = 'T_u')
+    #     plt.title(f'Max grad T_u vs epoch(Mode :{self.mode})'); plt.legend()
+    #     plt.savefig(os.path.join(save_dir, f'max_T_u_epoch_curve_{save_model_name}.png')); plt.close
+
+    # def plot_angle_epoch_curve(self, save_dir, save_model_name):
+    #     plt.figure(figsize=(10,6)); plt.yscale('log'); plt.grid(True)
+    #     plt.plot(self.history['epoch'], self.history['angle'], label = 'Angle')
+    #     plt.title(f'Angle vs epoch(Mode :{self.mode})'); plt.legend()
+    #     plt.savefig(os.path.join(save_dir, f'angle_epoch_curve_{save_model_name}.png')); plt.close
+
+
+    
 
 # Runs the intended block whenfile is executed directly, importing normally skips this block. 
 if __name__ == '__main__':

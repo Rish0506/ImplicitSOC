@@ -5,7 +5,7 @@ import argparse
 from Stochastic2D import Stochastic2D
 from ImplicitNets import ImplicitNetSOC, Phi
 from OptimalControlTrainer import OptimalControlTrainer
-#from CVXPolicy import CVXPolicy_S2D
+from CVXPolicy import CVXPolicy_S2D
 import time
 import sys, os
 
@@ -82,28 +82,28 @@ def run_s2d_jfb(config_oc, config_train, full_AD_mode=False, device="cpu"):
     z0_std = stochastic2D_std.sample_initial_condition()
     trainer_std.train(z0_std, num_epochs=config_train['epochs'], plot_frequency=25, save_model_name=save_model_name)
 
-# def run_s2d_jbb(config_oc,config_train, device="cpu", plot_frequency=None):
-#     """
-#     Solving problem using JBB
-#     """
-#     print()
-#     print("##########################################################################")
-#     print("#################                                           ##############")
-#     print("#################     Stochastic_2D with INN + CVX (JBB)    ##############")
-#     print("#################                                           ##############")
-#     print("##########################################################################")
-#     print()
+def run_s2d_jbb(config_oc,config_train, device="cpu", plot_frequency=None):
+    """
+    Solving problem using JBB
+    """
+    print()
+    print("##########################################################################")
+    print("#################                                           ##############")
+    print("#################     Stochastic_2D with INN + CVX (JBB)    ##############")
+    print("#################                                           ##############")
+    print("##########################################################################")
+    print()
 
-#     stochastic_cvx = Stochastic2D(device=device, **config_oc)
-#     phi_net = Phi(3,60, stochastic_cvx.state_dim)
-#     cvx_policy = CVXPolicy_S2D(config_oc['nt'], p_net=phi_net, tol=2e-3, dev=device).to(device)
-#     optimizer_cvx = torch.optim.Adam(cvx_policy.parameters(),lr = config_train['lr'])
-#     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer_cvx, mode='min', factor=0.5, patience=10)
-#     trainer_cvx = OptimalControlTrainer(cvx_policy, stochastic_cvx, optimizer_cvx, scheduler=scheduler, device=device)
-#     trainer_cvx.set_mode('cvx')
-#     save_model_name = f"best_policy_JBB_BatchSize_{config_oc['batch_size']}_nt_{config_oc['nt']}_{time.ctime().replace(' ','_').replace(':','_')}"
-#     z0_cvx = stochastic_cvx.sample_initial_condition()
-#     trainer_cvx.train(z0_cvx, num_epochs=config_train['epochs'], plot_frequency=None, save_model_name=save_model_name)
+    stochastic_cvx = Stochastic2D(device=device, **config_oc)
+    phi_net = Phi(3,60, stochastic_cvx.state_dim)
+    cvx_policy = CVXPolicy_S2D(stochastic_cvx.state_dim,stochastic_cvx.control_dim, p_net=phi_net, tol=2e-3, dev=device).to(device)
+    optimizer_cvx = torch.optim.Adam(cvx_policy.parameters(),lr = config_train['lr'])
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer_cvx, mode='min', factor=0.5, patience=10)
+    trainer_cvx = OptimalControlTrainer(cvx_policy, stochastic_cvx, optimizer_cvx, scheduler=scheduler, device=device)
+    trainer_cvx.set_mode('cvx')
+    save_model_name = f"best_policy_JBB_BatchSize_{config_oc['batch_size']}_nt_{config_oc['nt']}_{time.ctime().replace(' ','_').replace(':','_')}"
+    z0_cvx = stochastic_cvx.sample_initial_condition()
+    trainer_cvx.train(z0_cvx, num_epochs=config_train['epochs'], plot_frequency=None, save_model_name=save_model_name)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -118,13 +118,13 @@ def main():
     parser.add_argument('--train_full_ad',action='store_true',default=True,
         help='Train with full automatic differentiation',)
     
-    # parser.add_argument('--train_jbb',action='store_true',default=False,
-    #     help='Train the CVXPY / Jacobian-based policy',)
+    parser.add_argument('--train_jbb',action='store_true',default=True,
+         help='Train the CVXPY / Jacobian-based policy',)
 
     parser.add_argument("--batch_size", type=int, default=32, help="Trajectories per step (default: 32)")
     parser.add_argument("--nt", type=int, default=20, help="Time steps on [0, t_final] (default: 20)")
     parser.add_argument("--t_final", type=float, default=1.0, help="Horizon (default: 1.0)")
-    parser.add_argument("--epochs", type=int, default=500, help="Epochs per trial (default: 500)")
+    parser.add_argument("--epochs", type=int, default=1, help="Epochs per trial (default: 500)")
     parser.add_argument("--lr", type=float, default=1.0e-3, help="Adam learning rate (default: 1e-3)")
     parser.add_argument("--n_trials", type=int, default=1, help="Repeated runs. The seed is set once (default: 1)")
     parser.add_argument("--hidden", type=int, default=64, help="Phi hidden width (default: 64)")
@@ -171,8 +171,8 @@ def main():
             run_s2d_jfb(config_oc,config_train,full_AD_mode=False,device=args.device,)
         if args.train_full_ad:
             run_s2d_jfb(config_oc,config_train,full_AD_mode=True,device=args.device,)
-        # if args.train_jbb:
-        #     run_s2d_jbb(config_oc,config_train,device=args.device,)
+        if args.train_jbb:
+             run_s2d_jbb(config_oc,config_train,device=args.device,)
 
 
 if __name__ == "__main__":

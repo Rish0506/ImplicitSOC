@@ -267,7 +267,7 @@ class ImplicitSOC(ABC):
             "compute_sigma(t,z,u) must return a tensor of shape"
             "(batch_size, state_dim, noise_dim)"
             )
-        z_hess = z.clone().requires_grad_(True)
+        z_hess = z.detach().clone().requires_grad_(True)
         # the value function is a tensor
         value_function = phi_net.getPhi(t, z_hess)
         grad_V = torch.autograd.grad(value_function.sum(), z_hess, create_graph=True, retain_graph=True)[0]
@@ -438,10 +438,10 @@ class ImplicitSOC(ABC):
             torch.Tensor: Gradient of H w.r.t. u of shape (control_dim,)
         """
         """ Compute gradient of Lagrangian """
-        grad_term1 = -self.compute_grad_lagrangian_(t, z, u)
+        grad_term1 = -self.compute_grad_lagrangian(t, z, u)
 
         """ Compute gradient of dynamics """
-        grad_f_u_term = -self.compute_grad_f_u_(z, u, grad_f_u_term)
+        grad_f_u_term = -self.compute_grad_f_u(z, u, grad_f_u_term)
 
         """ Compute gradient of p^T f w.r.t. u """
         grad_term2 = torch.matmul(grad_f_u_term, p)
@@ -748,7 +748,7 @@ class ImplicitSOC(ABC):
                         cHJB = cHJB + torch.mean(u.p_net.getPhi(t_i,z) - self.h*self.compute_H(t_i, z, u_i, gradPhi[:,:self.state_dim],phi_net=u.p_net,compute_general_H=False).view(-1,1))
                         
 
-                    grad_H_u = self.compute_grad_H_u(t_i,z, u_i, gradPhi[:,:self.state_dim])
+                    grad_H_u = self.compute_grad_H_u(t_i,z, u_i, gradPhi[:,:self.state_dim], phi_net=u.p_net)
                     max_norm_grad_H_u = torch.max(torch.norm(grad_H_u, dim=1)).item()
                     avg_grad_H_u += torch.mean(torch.norm(grad_H_u, dim=1)).item()
                     if max_norm_grad_H_u > largest_grad_H_u:
