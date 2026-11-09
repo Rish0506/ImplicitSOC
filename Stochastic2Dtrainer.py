@@ -72,7 +72,7 @@ def run_s2d_jfb(config_oc, config_train, full_AD_mode=False, device="cpu"):
     implicit_net = ImplicitNetSOC(stochastic2D_std.state_dim, stochastic2D_std.control_dim, max_iters=int(100-tracked_iters), alpha=1e-1, tol=1e-2, tracked_iters=tracked_iters, soc_problem=stochastic2D_std, p_net=phi_net, dev=device).to(device)
     optimizer_std = torch.optim.Adam(implicit_net.parameters(), lr=config_train['lr'])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer_std, mode="min", factor=0.5, patience=40, min_lr=1e-4)
-    trainer_std = OptimalControlTrainer(implicit_net, stochastic2D_std, optimizer_std, scheduler=scheduler, device=device)
+    trainer_std = OptimalControlTrainer(implicit_net, stochastic2D_std, optimizer_std, scheduler=scheduler,ver=True, device=device)
     trainer_std.set_mode("standard")
 
     save_model_name = f"best_policy_JFB_BatchSize_{config_oc['batch_size']}__nt_{config_oc['nt']}_{time.ctime().replace(' ','_').replace(':','_')}"
@@ -124,12 +124,14 @@ def main():
     parser.add_argument("--batch_size", type=int, default=32, help="Trajectories per step (default: 32)")
     parser.add_argument("--nt", type=int, default=20, help="Time steps on [0, t_final] (default: 20)")
     parser.add_argument("--t_final", type=float, default=1.0, help="Horizon (default: 1.0)")
-    parser.add_argument("--epochs", type=int, default=1, help="Epochs per trial (default: 500)")
+    parser.add_argument("--epochs", type=int, default=2, help="Epochs per trial (default: 500)")
     parser.add_argument("--lr", type=float, default=1.0e-3, help="Adam learning rate (default: 1e-3)")
     parser.add_argument("--n_trials", type=int, default=1, help="Repeated runs. The seed is set once (default: 1)")
     parser.add_argument("--hidden", type=int, default=64, help="Phi hidden width (default: 64)")
-    parser.add_argument("--device", type=str, default="cuda", help="cpu, cuda, or cuda:N (default: cpu)")
+    parser.add_argument("--device", type=str, default="cpu", help="cpu, cuda, or cuda:N (default: cpu)")
     parser.add_argument("--seed", type=int, default=1015, help="Random seed (default: 1015)")
+    parser.add_argument("--ic_mean", type=float, default=[-1.5 , -1.5], help="Initial point")
+    parser.add_argument("--ic_var", type = float, default=0.4, help="Initial variance")
 
     args = parser.parse_args()
 
@@ -170,9 +172,9 @@ def main():
         if args.train_jfb:
             run_s2d_jfb(config_oc,config_train,full_AD_mode=False,device=args.device,)
         if args.train_full_ad:
-            run_s2d_jfb(config_oc,config_train,full_AD_mode=True,device=args.device,)
-        if args.train_jbb:
-             run_s2d_jbb(config_oc,config_train,device=args.device,)
+             run_s2d_jfb(config_oc,config_train,full_AD_mode=True,device=args.device,)
+        # if args.train_jbb:
+        #      run_s2d_jbb(config_oc,config_train,device=args.device,)
 
 
 if __name__ == "__main__":

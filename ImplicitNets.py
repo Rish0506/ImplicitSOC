@@ -16,7 +16,8 @@ x = batch of states (B,d), u = batch of controls (B,k), p = costates (B,d)
 """
 
 def antiderivTanh(x): # activation function aka the antiderivative of tanh
-    return torch.abs(x) + torch.log(1+torch.exp(-2.0*torch.abs(x)))
+    #return torch.abs(x) + torch.log(1+torch.exp(-2.0*torch.abs(x)))
+    return x + torch.nn.functional.softplus(-2.0*x)
     # return torch.log(torch.exp(x) + torch.exp(-x)) # numerically unstable
 
 def derivTanh(x): # act'' aka the second derivative of the activation function antiderivTanh
@@ -308,6 +309,8 @@ class ImplicitNetSOC(nn.Module, ABC):
 
         assert x.shape == (batch_size, self.state_dim)
         assert t_scalar.shape == (1,)
+
+
         with torch.enable_grad():
             p = self.p_net(t, x)
             #_, q = self.soc_problem.compute_q(t_scalar, x, u, p, phi_net = self.p_net)
@@ -390,7 +393,7 @@ class ImplicitNetSOC(nn.Module, ABC):
 
                 # Compute maximum residual norm over batches
                 #max_res_norm = (torch.norm(u - u_prev, dim=1).max()) / self.alpha
-                n_max_iters = num_itr
+                n_max_iters = num_itr-1
 
                 if verbose:
                     print(f'iter {num_itr}, max res norm {max_res_norm:.5e}')
@@ -489,7 +492,7 @@ class ImplicitNetSOC(nn.Module, ABC):
                 alpha = torch.linalg.solve(H[:,:(M+1),:(M+1)], Batch_RHS[:,:(M+1)])[:,1:(M+1),0]#Result is batch_sz x n
             except RuntimeError:#If matrix is singular solve using Householder QR least squares
                 print("Least-Squares Solve")
-                alpha = torch.linalg.lstsq(H[:,:(M+1),:(M+1)], Batch_RHS[:,:(M+1)])[0][:,1:(M+1)]
+                alpha = torch.linalg.lstsq(H[:,:(M+1),:(M+1)], Batch_RHS[:,:(M+1)])[0][:,1:(M+1),0]
 
             #Update data structures
             u_hist[:,k%m] = (1.0-beta)*((alpha[:,None]@u_hist[:,:M])[:,0]) + beta*((alpha[:,None]@T_hist[:,:M])[:,0])
@@ -498,7 +501,7 @@ class ImplicitNetSOC(nn.Module, ABC):
             res_k = torch.norm(T_hist[:,k%m] - u_hist[:,k%m], dim=1).max().item()
             k += 1
 
-        return u_hist[:,k%m].view_as(u0), res_k/self.alpha, k
+        return u_hist[:,(k-1)%m].view_as(u0), res_k/self.alpha, k
 
     def givensQRdelete(self,Q,R):
         """

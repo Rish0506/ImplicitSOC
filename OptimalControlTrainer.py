@@ -6,13 +6,16 @@ This follows the exact pattern from your utils_JFB.py but adapted for optimal co
 import torch
 import torch.nn as nn
 import time
+# it lets a small background task sample CPU memory while the training step runs
+import threading
+import numpy as np
 # Imports operating-system utilities for directories, file paths,
 import os
 #use it to convert training history into a table and save a CSV file.
 import pandas as pd
 from matplotlib import pyplot as plt
 from Stochastic2D import Stochastic2D
-from CVXPolicy import CVXPolicy_S2D
+#from CVXPolicy import CVXPolicy_S2D
 from ImplicitNets import ImplicitNetSOC
 from ImplicitNets import Phi
 # Imports process-monitoring utilities. We use this package to inspect CPU memory consumption.
@@ -96,7 +99,7 @@ class LRScheduler:
 # It will also handle the training process, including logging and saving the best model.
 class OptimalControlTrainer:
     # initialize the trainer with policy_net, soc_problem, optmizer, scheduler, device, and verification
-    def __init__(self, policy_net, soc_problem, optimizer, scheduler=None, ver=False, device='cpu'):
+    def __init__(self, policy_net, soc_problem, optimizer, scheduler=None, ver=False, device='cpu', validation_seed = 2026):
         # store the policy network, SOC problem, optimizer, scheduler, device and verification 
         self.policy = policy_net
         self.soc_problem = soc_problem
@@ -105,6 +108,8 @@ class OptimalControlTrainer:
         self.device = device
         self.mode = 'standard' # Default mode
         self.verify = ver # Whether or not to do additional computations to verify theoretical assumptions, default is False
+        self.validation_seed = validation_seed
+        self.method=('Full AD' if soc_problem.track_all_fp_iters else 'JFB')
         # Gradient clipping for direct control methods
         self.enable_grad_clip = False
         self.grad_clip_value = 1.0
@@ -349,6 +354,18 @@ class OptimalControlTrainer:
                       f"CPU Mem: {memory_MB:.1f}MB | Max CPU: {max_memory_MB:.1f}MB | "
                       f"GPU Mem: {gpu_memory_MB:.1f}MB | Max GPU: {gpu_max_memory_MB:.1f}MB | lr: {step_info['lr']:.3e} | "
                       f"max_fp_itrs: {step_info['max_fp_itrs']} | res_norm: {step_info['max_fp_res_norm']:.3e} | max_grad_H: {step_info['max_grad_H']:.3e} | avg_grad_H: {step_info['avg_grad_H']:.3e} | ")
+            if verbose and self.verify:
+                print(
+                    f"    T_u max: {step_info['max_grad_T_u']:.3e} | "
+                    f"T_u avg: {step_info['avg_grad_T_u']:.3e} | "
+                    f"T_u std: {step_info['sd_grad_T_u']:.3e} | "
+                    f"M singular min: {step_info['smallest_M_sdval']:.3e} | "
+                    f"M singular max: {step_info['largest_M_sdval']:.3e} | "
+                    f"smallest lambda_min: "
+                    f"{step_info['smallest_lambda_min']:.3e} | "
+                    f"largest lambda_max: "
+                    f"{step_info['largest_lambda_max']:.3e}"
+                )
                     #   f"smallest_lambda_min:{step_info.get('smallest_lambda_min',0):.3e} | largest_lambda_max:{step_info.get('largest_lambda_max',0):.3e} | "
                     #   f"max_grad_T_u:{step_info.get('max_grad_T_u',0):.3e} | avg_grad_T_u:{step_info.get('avg_grad_T_u',0):.3e} | angle:{step_info.get('angle', 0):.3e}")
 
@@ -366,6 +383,7 @@ class OptimalControlTrainer:
 
             # Plot: trajectories every plot_frequency epochs, saved into save_dir with the epoch in the name
             if plot_frequency and epoch % plot_frequency == 0:
+                self.policy.load_state_dict(torch.load(save_path, map_location=self.device,weights_only=True))
                 self.policy.eval()
                 with torch.no_grad():
                     z_traj = self.soc_problem.generate_trajectory(self.policy, z0,self.soc_problem.nt, return_full_trajectory=True)
@@ -383,7 +401,7 @@ class OptimalControlTrainer:
         # self.plot_loss_time_curve(save_dir, save_model_name)
         # self.plot_loss_workunits_curve(save_dir, save_model_name)
         # self.plot_memory_epoch_curve(save_dir, save_model_name)
-        # self.plot_max_T_u_epoch_curve(save_dir, save_model_name)
+        self.plot_max_T_u_epoch_curve(save_dir, save_model_name)
         # self.plot_angle_epoch_curve(save_dir, save_model_name)
 
         # Returns the trainer’s history dictionary to the caller after training finishes.
@@ -414,11 +432,11 @@ class OptimalControlTrainer:
     #     plt.title(f'Memory vs time(Mode :{self.mode})'); plt.legend()
     #     plt.savefig(os.path.join(save_dir, f'memory_epoch_curve_{save_model_name}.png')); plt.close
 
-    # def plot_max_T_u_epoch_curve(self, save_dir, save_model_name):
-    #     plt.figure(figsize=(10,6)); plt.yscale('log'); plt.grid(True)
-    #     plt.plot(self.history['epoch'], self.history['max_grad_T_u'], label = 'T_u')
-    #     plt.title(f'Max grad T_u vs epoch(Mode :{self.mode})'); plt.legend()
-    #     plt.savefig(os.path.join(save_dir, f'max_T_u_epoch_curve_{save_model_name}.png')); plt.close
+    def plot_max_T_u_epoch_curve(self, save_dir, save_model_name):
+        plt.figure(figsize=(10,6)); plt.yscale('log'); plt.grid(True)
+        plt.plot(self.history['epoch'], self.history['max_grad_T_u'], label = 'T_u')
+        plt.title(f'Max grad T_u vs epoch(Mode :{self.mode})'); plt.legend()
+        plt.savefig(os.path.join(save_dir, f'max_T_u_epoch_curve_{save_model_name}.png')); plt.close
 
     # def plot_angle_epoch_curve(self, save_dir, save_model_name):
     #     plt.figure(figsize=(10,6)); plt.yscale('log'); plt.grid(True)
@@ -452,7 +470,7 @@ if __name__ == '__main__':
     # Basically after every 15 bad epoches, learning rate is multiplied by 0.8. We can change it also.
     scheduler_std = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer_std, mode='min', factor=0.8, patience=15)
     # Creates the trainer for implicit_net, SOC problem, optimizer and scheduler and sets the device.
-    trainer_std = OptimalControlTrainer(implicit_net, S2D_problem_std, optimizer_std, scheduler_std, device=device)
+    trainer_std = OptimalControlTrainer(implicit_net, S2D_problem_std, optimizer_std, scheduler_std,ver=True, device=device)
     # sets the training mode to standard
     trainer_std.set_mode('standard')
     # define initial condition 
@@ -462,17 +480,17 @@ if __name__ == '__main__':
     
     # --- 2. Train with CVXPY Mode ---
     # Everything is same just for CVX.
-    print("\n--- Testing CVXPY Mode ---")
-    from ImplicitNets import Phi
-    S2D_problem = Stochastic2D(device=device, **config_OC)
-    Phi = Phi(3, 10, S2D_problem.state_dim, dev=device)
-    cvx_policy = CVXPolicy_S2D(S2D_problem.state_dim, S2D_problem.control_dim, p_net=Phi).to(device)
-    optimizer = torch.optim.Adam(cvx_policy.parameters(), lr=config_train['lr'])
-    scheduler_cvx = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.8, patience=15)
-    trainer_cvx = OptimalControlTrainer(cvx_policy, S2D_problem, optimizer, scheduler_cvx, device=device)
-    trainer_cvx.set_mode('cvx')
-    z0 = S2D_problem.sample_initial_condition()
-    trainer_cvx.train(z0, num_epochs=config_train['epochs'], save_model_name='best_cvx_policy')
+    # print("\n--- Testing CVXPY Mode ---")
+    # from ImplicitNets import Phi
+    # S2D_problem = Stochastic2D(device=device, **config_OC)
+    # Phi = Phi(3, 10, S2D_problem.state_dim, dev=device)
+    # cvx_policy = CVXPolicy_S2D(S2D_problem.state_dim, S2D_problem.control_dim, p_net=Phi).to(device)
+    # optimizer = torch.optim.Adam(cvx_policy.parameters(), lr=config_train['lr'])
+    # scheduler_cvx = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.8, patience=15)
+    # trainer_cvx = OptimalControlTrainer(cvx_policy, S2D_problem, optimizer, scheduler_cvx, device=device)
+    # trainer_cvx.set_mode('cvx')
+    # z0 = S2D_problem.sample_initial_condition()
+    # trainer_cvx.train(z0, num_epochs=config_train['epochs'], save_model_name='best_cvx_policy')
 
 
     # check grad_u H of the trained model

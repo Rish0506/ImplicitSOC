@@ -10,7 +10,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
 
 class Stochastic2D(ImplicitSOC):
-    def __init__(self, batch_size=50, t_initial=0.0, t_final=1.0, nt=250, alphaL=1.0, alphaG=1.0, device='cpu', ic_mean=[-2.5,-2.5], ic_var = 0, sigma=None, pen_pos = False):
+    def __init__(self, batch_size=50, t_initial=0.0, t_final=1.0, nt=250, alphaL=1.0, alphaG=1.0, device='cpu', ic_mean=[-1.5,-1.5], ic_var = 0.4, sigma=None, pen_pos = False):
         state_dim =2 
         control_dim = 2
         noise_dim = 2
@@ -20,7 +20,36 @@ class Stochastic2D(ImplicitSOC):
         self.ic_var = ic_var
         self.z_target = torch.tensor([1.5,1.5], dtype=torch.float32, device=self.device).repeat(batch_size, 1)
         self.sigma = torch.tensor([[0.2,-0.4],[-0.4,0.2]], dtype=torch.float32, device=self.device)
+        # self.sigma_u_scale = 0.05
 
+
+    # def compute_sigma(self, t, z, u):
+    #     u = u.view(-1, self.control_dim)
+
+    #     # Make a separate copy of the base matrix for each sample.
+    #     sigma = self.sigma.to(device=u.device, dtype=u.dtype)
+    #     sigma = sigma.unsqueeze(0).expand(u.shape[0], -1, -1).clone()
+
+    #     # Add control dependence to the diagonal entries.
+    #     sigma[:, 0, 0] = sigma[:, 0, 0] + self.sigma_u_scale*u[:, 0]
+    #     sigma[:, 1, 1] = sigma[:, 1, 1] + self.sigma_u_scale*u[:, 1]
+
+    #     return sigma
+    # def compute_grad_sigma_u(self, t, z, u):
+    #     # Shape: [batch, state, noise, control].
+    #     grad = torch.zeros(
+    #         z.shape[0], 2, 2, 2,
+    #         device=u.device, dtype=u.dtype
+    #     )
+
+    #     # Derivative of sigma_11 with respect to u_1.
+    #     grad[:, 0, 0, 0] = self.sigma_u_scale
+
+    #     # Derivative of sigma_22 with respect to u_2.
+    #     grad[:, 1, 1, 1] = self.sigma_u_scale
+
+    #     return grad
+    
     def Q(self, z):
         z = z.view(-1, self.state_dim)
         return  (100.0/(0.8*math.pi))*torch.exp(-0.5*torch.sum(z**2, dim=-1)/0.4)
@@ -55,7 +84,7 @@ class Stochastic2D(ImplicitSOC):
         z = z.view(-1, self.state_dim)
         return self.compute_grad_Q_z(z)
     def compute_sigma(self, t, z, u):
-        return self.sigma.unsqueeze(0).expand(z.shape[0],-1,-1)
+        return self.compute_sigma.unsqueeze(0).expand(z.shape[0],-1,-1)
     
  
     def compute_grad_sigma_z(self, t, z, u):      # (B, state, noise, state)
@@ -169,7 +198,7 @@ def main():
     #                               grad_func=lambda z_: problem.compute_grad_f_z(t0, z_, u0),x=z0,)
 
 
-    # taylor_checker.check_gradient( cost_func=lambda u_: problem.compute_sigma(t0, z0, u_),
+    #taylor_checker.check_gradient( cost_func=lambda u_: problem.compute_sigma(t0, z0, u_),
     #                               grad_func=lambda u_: problem.compute_grad_sigma_u(t0, z0, u_),x=u0,)  
 
     
