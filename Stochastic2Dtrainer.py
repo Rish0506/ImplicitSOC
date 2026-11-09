@@ -132,6 +132,7 @@ def main():
     parser.add_argument("--seed", type=int, default=1015, help="Random seed (default: 1015)")
     parser.add_argument("--ic_mean", type=float, default=[-1.5 , -1.5], help="Initial point")
     parser.add_argument("--ic_var", type = float, default=0.4, help="Initial variance")
+    parser.add_argument("--plot_frequency", type=int, default=50, help="Plot frequency")
 
     args = parser.parse_args()
 
