@@ -10,7 +10,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
 
 class Stochastic2D(ImplicitSOC):
-    def __init__(self, batch_size=50, t_initial=0.0, t_final=1.0, nt=250, alphaL=1.0, alphaG=1.0, device='cpu', ic_mean=[-1.5,-1.5], ic_var = 0.4, sigma=None, pen_pos = False):
+    def __init__(self, batch_size=50, t_initial=0.0, t_final=1.0, nt=250, alphaL=1.0, alphaG=1.0, device='cpu', ic_mean=[-1.5,-1.5], ic_var = 0.4, alphaHJB = [1.0,1.0], alphaadj = [1.0,1.0]):
         state_dim =2 
         control_dim = 2
         noise_dim = 2
@@ -84,7 +84,7 @@ class Stochastic2D(ImplicitSOC):
         z = z.view(-1, self.state_dim)
         return self.compute_grad_Q_z(z)
     def compute_sigma(self, t, z, u):
-        return self.compute_sigma.unsqueeze(0).expand(z.shape[0],-1,-1)
+        return self.sigma.unsqueeze(0).expand(z.shape[0],-1,-1)
     
  
     def compute_grad_sigma_z(self, t, z, u):      # (B, state, noise, state)

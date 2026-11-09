@@ -273,7 +273,7 @@ class OptimalControlTrainer:
             return self.standard_step(z0)
 
     # z0, number of epoches, plot after every 25 epoches and best policy is kind of check point.
-    def train(self, z0, num_epochs, verbose=True, plot_frequency=25, save_model_name='best_policy'):
+    def train(self, z0, num_epochs, verbose=True, plot_frequency=100, save_model_name='best_policy'):
         # get the problem type and read its name to create a directory for saving results. 
         soc_name = type(self.soc_problem).__name__
         # Builds a output-directory path using the problem name and mode. (example: results_Stochastic2D/standard_mode)
