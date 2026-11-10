@@ -19,7 +19,7 @@ class ImplicitSOC(ABC):
     """
     
     def __init__(self, state_dim, control_dim, noise_dim, batch_size, t_initial, t_final, nt, 
-                 alphaL, alphaG,  device='cpu', alphaHJB = [0.0,0.0], alphaadj = [0.0,0.0],
+                 alphaL, alphaG,  device='cpu', alphaHJB = [1,1], alphaadj = [1,1],
                  track_all_fp_iters = False): 
         """
         Initialize the Implicit Optimal Control problem.
