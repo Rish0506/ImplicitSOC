@@ -164,7 +164,6 @@ def main():
         "t_final": args.t_final,
         "c" : args.c,
         "ic_var" : args.ic_var,
-        "plot_frequency" : args.plot_frequency
     }
     config_train = {
         "lr": args.lr,
