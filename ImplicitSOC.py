@@ -515,6 +515,7 @@ class ImplicitSOC(ABC):
     def compute_loss_verify(self, u, z0):
         # Old trainer name only; all calculations are inside compute_loss.
         return self.compute_loss(u, z0, verify=True)
+
     
     # Singular value of T_{theta} measure parameter sensitivity and rank. 
     def compute_grad_T_theta(self, model,u,  z, ti, create_graph=False):
@@ -652,3 +653,40 @@ class ImplicitSOC(ABC):
             J = torch.stack(rows, dim=1)
 
         return J
+
+    def evaluate(self, z0,u):
+        """
+        Evaluate the trained policy from a fixed initial state
+
+        Args: 
+            u: Trained implicit policy. Its parameter should already be loaded from the saved best policy files.
+            z0 Initial states 
+        Returs:
+            phi_nn (float): Value predicted by Phi at the initial state
+            J_nn : Average running plus terminal loss over the trajectories
+            error : Absolute difference between phi_nn and J_nn
+        """
+        # Use the trained policy in evaluation mode 
+        u.eval()
+        batch_size = z0.shape[0]
+        z = z0.clone()
+        running_cost = torch.zeros(batch_size, device=z0.device, dtype = z0.dtype)
+
+        with torch.no_grad():
+            # Calculate the scalar value function at the initial state.
+            phi_nn = u.p_net.getPhi(self.t_initial, z[:1]).item()
+
+            for i in range(self.nt):
+                t_i = self.t_initial+i*self.h
+                u_i = u(z,t_i).view(batch_size, self.control_dim)
+                sigma_i = self.compute_sigma(t_i, z, u_i)
+                dW_i = self.sample_dW(z, sigma_i)
+                running_cost = running_cost + self.h*(self.compute_lagrangian(t_i, z, u_i).reshape(-1))
+                z = z + self.h * self.compute_f(t_i, z, u_i)+ torch.bmm(sigma_i, dW_i.unsqueeze(-1)).squeeze(-1)
+
+            terminal_cost = self.compute_G(z).reshape(-1)
+            cost = self.alphaL*running_cost + self.alphaG * terminal_cost
+            J_nn = cost.mean().item()
+
+        error = abs(phi_nn - J_nn)
+        return phi_nn, J_nn, error

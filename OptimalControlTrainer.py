@@ -405,6 +405,7 @@ class OptimalControlTrainer:
         # self.plot_angle_epoch_curve(save_dir, save_model_name)
 
         # Returns the trainer’s history dictionary to the caller after training finishes.
+        self.policy.load_state_dict(torch.load(save_path, map_location=self.device, weights_only=True))
         return self.history
     
     def plot_loss_curve(self, save_dir, save_model_name):

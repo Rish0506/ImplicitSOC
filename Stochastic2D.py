@@ -10,7 +10,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
 
 class Stochastic2D(ImplicitSOC):
-    def __init__(self, batch_size=50, t_initial=0.0, t_final=1.0, nt=250, alphaL=1.0, alphaG=1.0, device='cpu', ic_mean=[-1.5,-1.5], ic_var = 0.4, alphaHJB = [1.0,1.0], alphaadj = [1.0,1.0]):
+    def __init__(self, batch_size=50, t_initial=0.0, t_final=1.0, nt=250, alphaL=1.0, alphaG=1.0, device='cpu', ic_mean=[-1.5,-1.5], ic_var = 0.4, alphaHJB = [1.0,1.0], alphaadj = [1.0,1.0], c= 500.0):
         state_dim =2 
         control_dim = 2
         noise_dim = 2
@@ -18,6 +18,7 @@ class Stochastic2D(ImplicitSOC):
         self.soc_problem_name = "Stochastic 2D"
         self.ic_mean = torch.as_tensor(ic_mean, dtype = torch.float32, device = self.device).view(1,2)
         self.ic_var = ic_var
+        self.c = c
         self.z_target = torch.tensor([1.5,1.5], dtype=torch.float32, device=self.device).repeat(batch_size, 1)
         self.sigma = torch.tensor([[0.2,-0.4],[-0.4,0.2]], dtype=torch.float32, device=self.device)
         # self.sigma_u_scale = 0.05
@@ -52,11 +53,11 @@ class Stochastic2D(ImplicitSOC):
     
     def Q(self, z):
         z = z.view(-1, self.state_dim)
-        return  (200.0/(0.8*math.pi))*torch.exp(-0.5*torch.sum(z**2, dim=-1)/0.4)
+        return  (self.c/(0.8*math.pi))*torch.exp(-0.5*torch.sum(z**2, dim=-1)/0.4)
     def compute_grad_Q_z(self, z):
         z = z.view(-1, self.state_dim)
         z_sq = torch.sum(z**2, dim=-1, keepdim=True)
-        return -200.0/(0.8*math.pi)*torch.exp(-0.5*z_sq/0.4)*z/0.4
+        return (-self.c/(0.8*math.pi))*(torch.exp(-0.5*z_sq/0.4))*(z/0.4)
     def compute_f(self, t, z, u):
         u = u.view(-1, self.control_dim)
         #u_sq = torch.sum(u**2, dim=-1)

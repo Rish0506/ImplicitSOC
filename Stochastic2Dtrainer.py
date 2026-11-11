@@ -81,6 +81,11 @@ def run_s2d_jfb(config_oc, config_train, full_AD_mode=False, device="cpu"):
 
     z0_std = stochastic2D_std.sample_initial_condition()
     trainer_std.train(z0_std, num_epochs=config_train['epochs'], plot_frequency=100, save_model_name=save_model_name)
+    z0_eval = torch.tensor([[-1.5,-1.5]], dtype = torch.float32, device = device).repeat(config_oc['batch_size'],1)
+    phi_nn, J_nn, error = stochastic2D_std.evaluate(u=implicit_net, z0=z0_eval)
+    print(f"#############################################################")
+    print(f"Phi_NN: {phi_nn:.6f} | J_NN: {J_nn:.6f} | Error: {error:.6f}")
+    print(f"#############################################################")
 
 def run_s2d_jbb(config_oc,config_train, device="cpu", plot_frequency=None):
     """
@@ -124,7 +129,7 @@ def main():
     parser.add_argument("--batch_size", type=int, default=32, help="Trajectories per step (default: 32)")
     parser.add_argument("--nt", type=int, default=20, help="Time steps on [0, t_final] (default: 20)")
     parser.add_argument("--t_final", type=float, default=1.0, help="Horizon (default: 1.0)")
-    parser.add_argument("--epochs", type=int, default=2, help="Epochs per trial (default: 500)")
+    parser.add_argument("--epochs", type=int, default=10, help="Epochs per trial (default: 500)")
     parser.add_argument("--lr", type=float, default=1.0e-3, help="Adam learning rate (default: 1e-3)")
     parser.add_argument("--n_trials", type=int, default=1, help="Repeated runs. The seed is set once (default: 1)")
     parser.add_argument("--hidden", type=int, default=64, help="Phi hidden width (default: 64)")
@@ -133,6 +138,7 @@ def main():
     parser.add_argument("--ic_mean", type=float, default=[-1.5 , -1.5], help="Initial point")
     parser.add_argument("--ic_var", type = float, default=0.4, help="Initial variance")
     parser.add_argument("--plot_frequency", type=int, default=50, help="Plot frequency")
+    parser.add_argument("--c",type=float, default=500.0,help="Coefficient of the hill Q(z) (default: 500)")
 
     args = parser.parse_args()
 
