@@ -80,7 +80,7 @@ def run_s2d_jfb(config_oc, config_train, full_AD_mode=False, device="cpu"):
         save_model_name = f"best_policy_FullAD_BatchSize_{config_oc['batch_size']}_nt_{config_oc['nt']}_{time.ctime().replace(' ','_').replace(':','_')}"
 
     z0_std = stochastic2D_std.sample_initial_condition()
-    trainer_std.train(z0_std, num_epochs=config_train['epochs'], plot_frequency=5, save_model_name=save_model_name)
+    trainer_std.train(z0_std, num_epochs=config_train['epochs'], plot_frequency=100, save_model_name=save_model_name)
     z0_eval = torch.tensor([[-1.5,-1.5]], dtype = torch.float32, device = device).repeat(config_oc['batch_size'],1)
     phi_nn, J_nn, error = stochastic2D_std.evaluate(u=implicit_net, z0=z0_eval)
     print(f"#############################################################")
