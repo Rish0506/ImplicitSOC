@@ -65,7 +65,7 @@ def run_s2d_jfb(config_oc, config_train, full_AD_mode=False, device="cpu"):
 
     stochastic2D_std = Stochastic2D(device = device, **config_oc)
     print(f"State dimension: {stochastic2D_std.state_dim}, control dimension: {stochastic2D_std.control_dim}")
-    print(f"batch_size={config_oc['batch_size']}  nt={config_oc['nt']}  Hill coefficient={config_oc['c']} " f"t_final={config_oc['t_final']}")
+    print(f"batch_size={config_oc['batch_size']}  nt={config_oc['nt']}  Hill coefficient={config_oc['c']}  Variance={config_oc['ic_var']} "  f"t_final={config_oc['t_final']}")
     phi_net = Phi(3, 96, stochastic2D_std.state_dim)
     tracked_iters = 1
     stochastic2D_std.track_all_fp_iters = full_AD_mode
@@ -80,7 +80,7 @@ def run_s2d_jfb(config_oc, config_train, full_AD_mode=False, device="cpu"):
         save_model_name = f"best_policy_FullAD_BatchSize_{config_oc['batch_size']}_nt_{config_oc['nt']}_{time.ctime().replace(' ','_').replace(':','_')}"
 
     z0_std = stochastic2D_std.sample_initial_condition()
-    trainer_std.train(z0_std, num_epochs=config_train['epochs'], plot_frequency=100, save_model_name=save_model_name)
+    trainer_std.train(z0_std, num_epochs=config_train['epochs'], plot_frequency=5, save_model_name=save_model_name)
     z0_eval = torch.tensor([[-1.5,-1.5]], dtype = torch.float32, device = device).repeat(config_oc['batch_size'],1)
     phi_nn, J_nn, error = stochastic2D_std.evaluate(u=implicit_net, z0=z0_eval)
     print(f"#############################################################")
@@ -136,9 +136,9 @@ def main():
     parser.add_argument("--device", type=str, default="cpu", help="cpu, cuda, or cuda:N (default: cpu)")
     parser.add_argument("--seed", type=int, default=1015, help="Random seed (default: 1015)")
     parser.add_argument("--ic_mean", type=float, default=[-1.5 , -1.5], help="Initial point")
-    parser.add_argument("--ic_var", type = float, default=0.4, help="Initial variance")
+    parser.add_argument("--ic_var", type = float, default=0.0, help="Initial variance")
     parser.add_argument("--plot_frequency", type=int, default=50, help="Plot frequency")
-    parser.add_argument("--c",type=float, default=500.0,help="Coefficient of the hill Q(z) (default: 500)")
+    parser.add_argument("--c",type=float, default=50.0,help="Coefficient of the hill Q(z) (default: 500)")
 
     args = parser.parse_args()
 
