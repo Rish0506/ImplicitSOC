@@ -67,6 +67,7 @@ def run_s2d_jfb(config_oc, config_train, full_AD_mode=False, device="cpu"):
     print(f"State dimension: {stochastic2D_std.state_dim}, control dimension: {stochastic2D_std.control_dim}")
     print(f"batch_size={config_oc['batch_size']}  nt={config_oc['nt']}  Hill coefficient={config_oc['c']}  Variance={config_oc['ic_var']} "  f"t_final={config_oc['t_final']}")
     phi_net = Phi(3, 96, stochastic2D_std.state_dim)
+    phi_net.soc_problem = stochastic2D_std
     tracked_iters = 1
     stochastic2D_std.track_all_fp_iters = full_AD_mode
     implicit_net = ImplicitNetSOC(stochastic2D_std.state_dim, stochastic2D_std.control_dim, max_iters=int(100-tracked_iters), alpha=1e-1, tol=1e-2, tracked_iters=tracked_iters, soc_problem=stochastic2D_std, p_net=phi_net, dev=device).to(device)
@@ -87,28 +88,28 @@ def run_s2d_jfb(config_oc, config_train, full_AD_mode=False, device="cpu"):
     print(f"Phi_NN: {phi_nn:.6f} | J_NN: {J_nn:.6f} | Error: {error:.6f}")
     print(f"#############################################################")
 
-def run_s2d_jbb(config_oc,config_train, device="cpu", plot_frequency=None):
-    """
-    Solving problem using JBB
-    """
-    print()
-    print("##########################################################################")
-    print("#################                                           ##############")
-    print("#################     Stochastic_2D with INN + CVX (JBB)    ##############")
-    print("#################                                           ##############")
-    print("##########################################################################")
-    print()
+# def run_s2d_jbb(config_oc,config_train, device="cpu", plot_frequency=None):
+#     """
+#     Solving problem using JBB
+#     """
+#     print()
+#     print("##########################################################################")
+#     print("#################                                           ##############")
+#     print("#################     Stochastic_2D with INN + CVX (JBB)    ##############")
+#     print("#################                                           ##############")
+#     print("##########################################################################")
+#     print()
 
-    stochastic_cvx = Stochastic2D(device=device, **config_oc)
-    phi_net = Phi(3,60, stochastic_cvx.state_dim)
-    cvx_policy = CVXPolicy_S2D(stochastic_cvx.state_dim,stochastic_cvx.control_dim, p_net=phi_net, tol=2e-3, dev=device).to(device)
-    optimizer_cvx = torch.optim.Adam(cvx_policy.parameters(),lr = config_train['lr'])
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer_cvx, mode='min', factor=0.5, patience=10)
-    trainer_cvx = OptimalControlTrainer(cvx_policy, stochastic_cvx, optimizer_cvx, scheduler=scheduler, device=device)
-    trainer_cvx.set_mode('cvx')
-    save_model_name = f"best_policy_JBB_BatchSize_{config_oc['batch_size']}_nt_{config_oc['nt']}_{time.ctime().replace(' ','_').replace(':','_')}"
-    z0_cvx = stochastic_cvx.sample_initial_condition()
-    trainer_cvx.train(z0_cvx, num_epochs=config_train['epochs'], plot_frequency=None, save_model_name=save_model_name)
+#     stochastic_cvx = Stochastic2D(device=device, **config_oc)
+#     phi_net = Phi(3,60, stochastic_cvx.state_dim)
+#     cvx_policy = CVXPolicy_S2D(stochastic_cvx.state_dim,stochastic_cvx.control_dim, p_net=phi_net, tol=2e-3, dev=device).to(device)
+#     optimizer_cvx = torch.optim.Adam(cvx_policy.parameters(),lr = config_train['lr'])
+#     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer_cvx, mode='min', factor=0.5, patience=10)
+#     trainer_cvx = OptimalControlTrainer(cvx_policy, stochastic_cvx, optimizer_cvx, scheduler=scheduler, device=device)
+#     trainer_cvx.set_mode('cvx')
+#     save_model_name = f"best_policy_JBB_BatchSize_{config_oc['batch_size']}_nt_{config_oc['nt']}_{time.ctime().replace(' ','_').replace(':','_')}"
+#     z0_cvx = stochastic_cvx.sample_initial_condition()
+#     trainer_cvx.train(z0_cvx, num_epochs=config_train['epochs'], plot_frequency=None, save_model_name=save_model_name)
 
 def main():
     parser = argparse.ArgumentParser(

@@ -229,8 +229,8 @@ class Phi(PNet):
             t = t.detach().flatten()[0].item()
         x = pad(z, [0, 1, 0, 0], value=float(t))
         symA = torch.matmul(torch.t(self.A), self.A)
-        return self.w(self.N(x)) + 0.5 * torch.sum(torch.matmul(x, symA) * x, dim=1, keepdims=True) + self.c(x)
-
+        return torch.exp(z.new_tensor(float(t) - self.soc_problem.t_final)) * self.soc_problem.alphaG * self.soc_problem.compute_G(z).view(-1, 1) + (1.0 - torch.exp(z.new_tensor(float(t) - self.soc_problem.t_final))) * (self.w(self.N(x)) + 0.5 * torch.sum(torch.matmul(x, symA) * x, dim=1, keepdims=True) + self.c(x))
+    
 class ImplicitNetSOC(nn.Module, ABC):
     """
     Abstract base class for implicit neural networks.
