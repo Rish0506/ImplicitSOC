@@ -10,7 +10,7 @@ os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
 
 class Stochastic2D(ImplicitSOC):
-    def __init__(self, batch_size=50, t_initial=0.0, t_final=1.0, nt=250, alphaL=1.0, alphaG=1.0, device='cpu', ic_mean=[-1.5,-1.5], ic_var = 0.0, alphaHJB = [1.0,1.0], alphaadj = [1.0,1.0], c= 50.0):
+    def __init__(self, batch_size=50, t_initial=0.0, t_final=1.0, nt=250, alphaL=1.0, alphaG=1.0, device='cpu', ic_mean=[-2.5,-2.5], ic_var = 0.0, alphaHJB = [1.0,1.0], alphaadj = [1.0,1.0], c= 150.0):
         state_dim =2 
         control_dim = 2
         noise_dim = 2
@@ -19,7 +19,7 @@ class Stochastic2D(ImplicitSOC):
         self.ic_mean = torch.as_tensor(ic_mean, dtype = torch.float32, device = self.device).view(1,2)
         self.ic_var = ic_var
         self.c = c
-        self.z_target = torch.tensor([1.5,1.5], dtype=torch.float32, device=self.device).repeat(batch_size, 1)
+        self.z_target = torch.tensor([2.5,2.5], dtype=torch.float32, device=self.device).repeat(batch_size, 1)
         self.sigma = torch.tensor([[0.2,-0.4],[-0.4,0.2]], dtype=torch.float32, device=self.device)
         # self.sigma_u_scale = 0.05
 

@@ -81,7 +81,7 @@ def run_s2d_jfb(config_oc, config_train, full_AD_mode=False, device="cpu"):
 
     z0_std = stochastic2D_std.sample_initial_condition()
     trainer_std.train(z0_std, num_epochs=config_train['epochs'], plot_frequency=100, save_model_name=save_model_name)
-    z0_eval = torch.tensor([[-1.5,-1.5]], dtype = torch.float32, device = device).repeat(config_oc['batch_size'],1)
+    z0_eval = torch.tensor([[-2.5,-2.5]], dtype = torch.float32, device = device).repeat(config_oc['batch_size'],1)
     phi_nn, J_nn, error = stochastic2D_std.evaluate(u=implicit_net, z0=z0_eval)
     print(f"#############################################################")
     print(f"Phi_NN: {phi_nn:.6f} | J_NN: {J_nn:.6f} | Error: {error:.6f}")
@@ -138,7 +138,7 @@ def main():
     parser.add_argument("--ic_mean", type=float, default=[-1.5 , -1.5], help="Initial point")
     parser.add_argument("--ic_var", type = float, default=0.0, help="Initial variance")
     parser.add_argument("--plot_frequency", type=int, default=50, help="Plot frequency")
-    parser.add_argument("--c",type=float, default=50.0,help="Coefficient of the hill Q(z) (default: 500)")
+    parser.add_argument("--c",type=float, default=100.0,help="Coefficient of the hill Q(z) (default: 500)")
 
     args = parser.parse_args()
 
