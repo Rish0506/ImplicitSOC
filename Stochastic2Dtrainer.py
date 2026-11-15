@@ -67,7 +67,7 @@ def run_s2d_jfb(config_oc, config_train, full_AD_mode=False, device="cpu"):
     print(f"State dimension: {stochastic2D_std.state_dim}, control dimension: {stochastic2D_std.control_dim}")
     print(f"batch_size={config_oc['batch_size']}  nt={config_oc['nt']}  Hill coefficient={config_oc['c']}  Variance={config_oc['ic_var']} "  f"t_final={config_oc['t_final']}")
     phi_net = Phi(3, 96, stochastic2D_std.state_dim)
-    phi_net.soc_problem = stochastic2D_std
+    #phi_net.soc_problem = stochastic2D_std
     tracked_iters = 1
     stochastic2D_std.track_all_fp_iters = full_AD_mode
     implicit_net = ImplicitNetSOC(stochastic2D_std.state_dim, stochastic2D_std.control_dim, max_iters=int(100-tracked_iters), alpha=1e-1, tol=1e-2, tracked_iters=tracked_iters, soc_problem=stochastic2D_std, p_net=phi_net, dev=device).to(device)
