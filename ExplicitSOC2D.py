@@ -165,7 +165,7 @@ def main():
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     batch_size = 2
     nt = 250
-    problem = Stochastic2D(batch_size=batch_size, nt=nt, device=device)
+    problem = ExplicitSOC2D(batch_size=batch_size, nt=nt, device=device)
     print("\n" + "="*50)
     print("Performing Gradient Check for functions")
 
