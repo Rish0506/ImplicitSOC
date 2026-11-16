@@ -373,22 +373,26 @@ class OptimalControlTrainer:
             prev_loss = step_info['loss']
 
             # Checks whether the reported training loss is lower than the best reported loss seen during this call to train
+            policy_before_step = copy.deepcopy(self.policy.state_dict())
+            step_info = self.train_epoch(z0)
             if step_info['loss'] < best_loss:
                 # updates the best loss record
                 best_loss = step_info['loss']
                 # save the policy's parameters and registered buffers. 
-                torch.save(self.policy.state_dict(), save_path)
+                torch.save(policy_before_step, save_path)
                 # Prints a message indicating that a new best model has been saved, along with the loss value.
                 if verbose: print(f"    -> New best model saved to {save_path} with loss {best_loss:.4e}")
 
             # Plot: trajectories every plot_frequency epochs, saved into save_dir with the epoch in the name
             if plot_frequency and epoch % plot_frequency == 0:
-                self.policy.load_state_dict(torch.load(save_path, map_location=self.device,weights_only=True))
+                current_state = copy.deepcopy(self.policy.state_dict())
+                #self.policy.load_state_dict(torch.load(save_path, map_location=self.device,weights_only=True))
                 self.policy.eval()
                 with torch.no_grad():
                     z_traj = self.soc_problem.generate_trajectory(self.policy, z0,self.soc_problem.nt, return_full_trajectory=True)
                 self.soc_problem.plot_trajectories(z_traj.detach(), filename=os.path.join(save_dir, f'trajectories_{save_model_name}_epoch{epoch:04d}.png'))
-
+                # Immediately after plotting, before self.policy.train():
+                self.policy.load_state_dict(current_state)
                 # restores training mode after plotting branches
                 self.policy.train()
 
