@@ -14,7 +14,7 @@ class ExplicitSOC2D(ImplicitSOC):
         state_dim =2 
         control_dim = 2
         noise_dim = 2
-        super().__init__(state_dim, control_dim,noise_dim,  batch_size, t_initial, t_final, nt, alphaL, alphaG,alphaadj, alphaHJB, device)
+        super().__init__(state_dim, control_dim,noise_dim,  batch_size, t_initial, t_final, nt, alphaL, alphaG,alphaadj=alphaadj, alphaHJB=alphaHJB, device=device)
         self.soc_problem_name = "Explicit SOC"
         self.ic_mean = torch.as_tensor(ic_mean, dtype = torch.float32, device = self.device).view(1,2)
         self.ic_var = ic_var

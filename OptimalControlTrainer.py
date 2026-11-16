@@ -304,6 +304,7 @@ class OptimalControlTrainer:
             # records the current time before the training start
             epoch_start_time = time.time()
             # perfomrs on training update and recives it dictionary of metrices. The same supplies z0 is reused each epoch
+            policy_before_step = copy.deepcopy(self.policy.state_dict())
             step_info = self.train_epoch(z0)
             # Supplies the reported loss to scheduler to update the learning rate if needed.
             self.scheduler.step(step_info['loss'])
@@ -373,8 +374,7 @@ class OptimalControlTrainer:
             prev_loss = step_info['loss']
 
             # Checks whether the reported training loss is lower than the best reported loss seen during this call to train
-            policy_before_step = copy.deepcopy(self.policy.state_dict())
-            step_info = self.train_epoch(z0)
+
             if step_info['loss'] < best_loss:
                 # updates the best loss record
                 best_loss = step_info['loss']
@@ -386,7 +386,7 @@ class OptimalControlTrainer:
             # Plot: trajectories every plot_frequency epochs, saved into save_dir with the epoch in the name
             if plot_frequency and epoch % plot_frequency == 0:
                 current_state = copy.deepcopy(self.policy.state_dict())
-                #self.policy.load_state_dict(torch.load(save_path, map_location=self.device,weights_only=True))
+                self.policy.load_state_dict(torch.load(save_path, map_location=self.device,weights_only=True))
                 self.policy.eval()
                 with torch.no_grad():
                     z_traj = self.soc_problem.generate_trajectory(self.policy, z0,self.soc_problem.nt, return_full_trajectory=True)
