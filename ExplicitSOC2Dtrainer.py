@@ -12,7 +12,7 @@ import sys, os
 # This defines a class: a small object with its own data and methods.
 class Logger(object):
     # runs when a new logger is created 
-    def __init__(self, filename = "results_Explicit2D/explicit2d_run.log"):
+    def __init__(self, filename = "results_ExplicitSOC2D/explicitsoc2d_run.log"):
         # saves the terminal output stream before the script replaces it. The logger can then continue showing output in the terminal
         # stdout : Python’s built-in file object responsible for handling standard output.
         self.terminal = sys.stdout
@@ -128,7 +128,7 @@ def main():
          help='Train the CVXPY / Jacobian-based policy',)
 
     parser.add_argument("--batch_size", type=int, default=64, help="Trajectories per step (default: 32)")
-    parser.add_argument("--nt", type=int, default=20, help="Time steps on [0, t_final] (default: 20)")
+    parser.add_argument("--nt", type=int, default=250, help="Time steps on [0, t_final] (default: 20)")
     parser.add_argument("--t_final", type=float, default=1.0, help="Horizon (default: 1.0)")
     parser.add_argument("--epochs", type=int, default=6000, help="Epochs per trial (default: 500)")
     parser.add_argument("--lr", type=float, default=1.0e-3, help="Adam learning rate (default: 1e-3)")
