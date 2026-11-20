@@ -58,7 +58,7 @@ class MultiAssetLiquidation(ImplicitSOC):
         cash_row = (S-2.0*self.kappa*u).unsqueeze(1)
         B = self._like(self.B,u)
         # entry (i,j) is -7B[i,j]*u[j]**6
-        price_rows = -7.0 * B.unsqueeze(0) * u.pow(6).squeeze(1)
+        price_rows = -7.0 * B.unsqueeze(0) * u.pow(6).unsqueeze(1)
         inventory_rows = - torch.eye(n, device=u.device, dtype = u.dtype).unsqueeze(0).expand(u.shape[0], -1, -1)
         return torch.cat((cash_row, price_rows, inventory_rows), dim=1)
 
@@ -190,11 +190,11 @@ def main():
     # expected[:, 1:1 + problem.n_assets] = u0
     # print('Max f_z difference:', (actual - expected).abs().max().item())
 
-    # print('Checking f_z')
-    # taylor_checker.check_gradient(
-    #     cost_func=lambda z_: problem.compute_f(t0, z_, u0).sum(),
-    #     grad_func=lambda z_: problem.compute_grad_f_z(t0, z_, u0).sum(dim=1),
-    #     x=z0)
+    print('Checking f_z')
+    taylor_checker.check_gradient(
+        cost_func=lambda z_: problem.compute_f(t0, z_, u0).sum(),
+        grad_func=lambda z_: problem.compute_grad_f_z(t0, z_, u0).sum(dim=1),
+        x=z0)
 
     print('Checking f_u')
     taylor_checker.check_gradient(

@@ -65,7 +65,7 @@ def run_s2d_jfb(config_oc, config_train, full_AD_mode=False, device="cpu"):
 
     multiass_std = MultiAssetLiquidation(device = device, **config_oc)
     print(f"State dimension: {multiass_std.state_dim}, control dimension: {multiass_std.control_dim}")
-    print(f"batch_size={config_oc['batch_size']}  nt={config_oc['nt']}  Hill coefficient={config_oc['c']}  Variance={config_oc['ic_var']} "  f"t_final={config_oc['t_final']}")
+    print(f"batch_size={config_oc['batch_size']}  nt={config_oc['nt']}  Variance={config_oc['ic_var']} "  f"t_final={config_oc['t_final']}")
     phi_net = Phi(3, 96, multiass_std.state_dim)
     #phi_net.soc_problem = multiass_std
     tracked_iters = 1
@@ -163,7 +163,6 @@ def main():
         "batch_size": args.batch_size,
         "nt": args.nt,
         "t_final": args.t_final,
-        "c" : args.c,
         "ic_var" : args.ic_var,
     }
     config_train = {
