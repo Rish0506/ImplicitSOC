@@ -49,7 +49,7 @@ class MultiAssetLiquidation(ImplicitSOC):
         batch = u.shape[0]
         n = self.n_assets 
         cash_row = torch.cat((u.new_zeros(batch,1), u, u.new_zeros(batch,n)), dim=1).unsqueeze(1)
-        return torch.cat((cash_row, u.new_zeros(batch, 2*n, self.state_dim)), dim=1)
+        return torch.cat((cash_row, u.new_zeros(batch, 2*n, self.state_dim)), dim=1).transpose(1,2)
 
     def compute_grad_f_u(self, t, z, u):
         u = u.reshape(-1,self.control_dim)
@@ -60,7 +60,7 @@ class MultiAssetLiquidation(ImplicitSOC):
         # entry (i,j) is -7B[i,j]*u[j]**6
         price_rows = -7.0 * B.unsqueeze(0) * u.pow(6).unsqueeze(1)
         inventory_rows = - torch.eye(n, device=u.device, dtype = u.dtype).unsqueeze(0).expand(u.shape[0], -1, -1)
-        return torch.cat((cash_row, price_rows, inventory_rows), dim=1)
+        return torch.cat((cash_row, price_rows, inventory_rows), dim=1).transpose(1,2)
 
     def compute_sigma(self, t, z, u):
         z = z.reshape(-1,self.state_dim)
@@ -71,8 +71,8 @@ class MultiAssetLiquidation(ImplicitSOC):
         return z.new_zeros(z.shape[0],self.state_dim, self.noise_dim, self.state_dim)
 
     def compute_grad_sigma_u(self, t, z, u):
-        z = z.reshape(-1,self.state_dim)
-        return z.new_zeros(z.shape[0],self.state_dim, self.noise_dim, self.state_dim)
+        z = z.reshape(-1, self.state_dim)
+        return z.new_zeros(z.shape[0], self.state_dim, self.noise_dim, self.control_dim)
 
     def compute_lagrangian(self, t, z, u):
         _, _, Q = self._parts(z)
@@ -193,13 +193,13 @@ def main():
     print('Checking f_z')
     taylor_checker.check_gradient(
         cost_func=lambda z_: problem.compute_f(t0, z_, u0).sum(),
-        grad_func=lambda z_: problem.compute_grad_f_z(t0, z_, u0).sum(dim=1),
+        grad_func=lambda z_: problem.compute_grad_f_z(t0, z_, u0).sum(dim=2),
         x=z0)
 
     print('Checking f_u')
     taylor_checker.check_gradient(
         cost_func=lambda u_: problem.compute_f(t0, z0, u_).sum(),
-        grad_func=lambda u_: problem.compute_grad_f_u(t0, z0, u_).sum(dim=1),
+        grad_func=lambda u_: problem.compute_grad_f_u(t0, z0, u_).sum(dim=2),
         x=u0)
 
     print('Checking L_z')

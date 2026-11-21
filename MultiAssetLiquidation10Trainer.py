@@ -70,7 +70,7 @@ def run_s2d_jfb(config_oc, config_train, full_AD_mode=False, device="cpu"):
     #phi_net.soc_problem = multiass_std
     tracked_iters = 1
     multiass_std.track_all_fp_iters = full_AD_mode
-    implicit_net = ImplicitNetSOC(multiass_std.state_dim, multiass_std.control_dim, max_iters=int(100-tracked_iters), alpha=1e-1, tol=1e-2, tracked_iters=tracked_iters, soc_problem=multiass_std, p_net=phi_net, dev=device).to(device)
+    implicit_net = ImplicitNetSOC(multiass_std.state_dim, multiass_std.control_dim, max_iters=int(100-tracked_iters), alpha=1e-4, tol=1e-2, tracked_iters=tracked_iters, soc_problem=multiass_std, u_min =0.0, u_max =float('inf'), use_control_limits=True, p_net=phi_net, dev=device).to(device)
     optimizer_std = torch.optim.Adam(implicit_net.parameters(), lr=config_train['lr'])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer_std, mode="min", factor=0.5, patience=40, min_lr=1e-4)
     trainer_std = OptimalControlTrainer(implicit_net, multiass_std, optimizer_std, scheduler=scheduler,ver=True, device=device)
