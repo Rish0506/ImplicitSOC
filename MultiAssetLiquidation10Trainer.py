@@ -2,7 +2,7 @@ import torch
 import numpy as np
 # reads options such as epochs
 import argparse
-from MultiAssetLiquidation10D import MultiAssetLiquidation
+from MultiAssetLiquidation10D import MultiAssetLiquidation10D
 from ImplicitNets import ImplicitNetSOC, Phi
 from OptimalControlTrainer import OptimalControlTrainer
 from CVXPolicy import CVXPolicy_S2D
@@ -12,7 +12,7 @@ import sys, os
 # This defines a class: a small object with its own data and methods.
 class Logger(object):
     # runs when a new logger is created 
-    def __init__(self, filename = "results_MultiAssetLiquidation/multiassestliquidation_run.log"):
+    def __init__(self, filename = "results_MultiAssetLiquidation10d/multiassestliquidation10d_run.log"):
         # saves the terminal output stream before the script replaces it. The logger can then continue showing output in the terminal
         # stdout : Python’s built-in file object responsible for handling standard output.
         self.terminal = sys.stdout
@@ -47,7 +47,7 @@ class Logger(object):
 
 # This replaces Python’s usual standard-output stream with the logger. After this line, print(...) writes to both the terminal and that file.
 # this happens as son as Python loads the file         
-sys.stdout = Logger("results_MultiAssetLiquidation/multiliquidliquidation_run.log")
+sys.stdout = Logger("results_MultiAssetLiquidation10d/multiliquidliquidation10d_run.log")
 
 def run_s2d_jfb(config_oc, config_train, full_AD_mode=False, device="cpu"):
     """
@@ -63,27 +63,27 @@ def run_s2d_jfb(config_oc, config_train, full_AD_mode=False, device="cpu"):
     print(f"Full AD Mode: {full_AD_mode}")
     print()
 
-    multiass_std = MultiAssetLiquidation(device = device, **config_oc)
-    print(f"State dimension: {multiass_std.state_dim}, control dimension: {multiass_std.control_dim}")
+    multiass_10d = MultiAssetLiquidation10D(device = device, **config_oc)
+    print(f"State dimension: {multiass_10d.state_dim}, control dimension: {multiass_10d.control_dim}")
     print(f"batch_size={config_oc['batch_size']}  nt={config_oc['nt']}  Variance={config_oc['ic_var']} "  f"t_final={config_oc['t_final']}")
-    phi_net = Phi(3, 96, multiass_std.state_dim)
-    #phi_net.soc_problem = multiass_std
+    phi_net = Phi(3, 96, multiass_10d.state_dim)
+    #phi_net.soc_problem = multiass_10d
     tracked_iters = 1
-    multiass_std.track_all_fp_iters = full_AD_mode
-    implicit_net = ImplicitNetSOC(multiass_std.state_dim, multiass_std.control_dim, max_iters=int(100-tracked_iters), alpha=1e-4, tol=1e-2, tracked_iters=tracked_iters, soc_problem=multiass_std, u_min =0.0, u_max =float('inf'), use_control_limits=True, p_net=phi_net, dev=device).to(device)
+    multiass_10d.track_all_fp_iters = full_AD_mode
+    implicit_net = ImplicitNetSOC(multiass_10d.state_dim, multiass_10d.control_dim, max_iters=int(100-tracked_iters), alpha=1e-4, tol=1e-2, tracked_iters=tracked_iters, soc_problem=multiass_10d, u_min =0.0, u_max =float('inf'), use_control_limits=True, p_net=phi_net, dev=device).to(device)
     optimizer_std = torch.optim.Adam(implicit_net.parameters(), lr=config_train['lr'])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer_std, mode="min", factor=0.5, patience=40, min_lr=1e-4)
-    trainer_std = OptimalControlTrainer(implicit_net, multiass_std, optimizer_std, scheduler=scheduler,ver=True, device=device)
+    trainer_std = OptimalControlTrainer(implicit_net, multiass_10d, optimizer_std, scheduler=scheduler,ver=True, device=device)
     trainer_std.set_mode("standard")
 
     save_model_name = f"best_policy_JFB_BatchSize_{config_oc['batch_size']}__nt_{config_oc['nt']}_{time.ctime().replace(' ','_').replace(':','_')}"
     if full_AD_mode:
         save_model_name = f"best_policy_FullAD_BatchSize_{config_oc['batch_size']}_nt_{config_oc['nt']}_{time.ctime().replace(' ','_').replace(':','_')}"
 
-    z0_std = multiass_std.sample_initial_condition()
+    z0_std = multiass_10d.sample_initial_condition()
     trainer_std.train(z0_std, num_epochs=config_train['epochs'], plot_frequency=100, save_model_name=save_model_name)
     z0_eval = torch.tensor([[-2.5,-2.5]], dtype = torch.float32, device = device).repeat(config_oc['batch_size'],1)
-    phi_nn, J_nn, error = multiass_std.evaluate(u=implicit_net, z0=z0_eval)
+    phi_nn, J_nn, error = multiass_10d.evaluate(u=implicit_net, z0=z0_eval)
     print(f"#############################################################")
     print(f"Phi_NN: {phi_nn:.6f} | J_NN: {J_nn:.6f} | Error: {error:.6f}")
     print(f"#############################################################")

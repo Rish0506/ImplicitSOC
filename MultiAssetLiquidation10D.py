@@ -3,7 +3,7 @@ import torch
 from ImplicitSOC import ImplicitSOC
 import matplotlib.pyplot as plt
 
-class MultiAssetLiquidation(ImplicitSOC):
+class MultiAssetLiquidation10D(ImplicitSOC):
     def __init__(self, batch_size=50, t_initial = 0.0, t_final = 1.0, nt=250, alphaL=1, alphaG=1, device='cpu', ic_var=0.0):
         self.n_assets = 10 # number of assets
         state_dim = 1+ 2*self.n_assets
@@ -177,7 +177,7 @@ def main():
     from utils import GradientTester_Taylors as GradientTester
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    problem = MultiAssetLiquidation(batch_size=2, nt=250, device=device)
+    problem = MultiAssetLiquidation10D(batch_size=2, nt=250, device=device)
     taylor_checker = GradientTester()
     z0 = problem.sample_initial_condition()[0:1].double()
     u0 = torch.linspace(0.3, 1.2, problem.control_dim,
