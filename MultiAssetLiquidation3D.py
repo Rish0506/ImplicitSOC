@@ -5,14 +5,12 @@ import matplotlib.pyplot as plt
 
 
 class MultiAssetLiquidation3D(ImplicitSOC):
-    def __init__(self, batch_size=50, t_initial=0.0, t_final=1.0,
-                 nt=250, alphaL=1, alphaG=1, device='cpu', ic_var=0.0):
+    def __init__(self, batch_size=50, t_initial=0.0, t_final=1.0,nt=250, alphaL=1, alphaG=1, device='cpu', ic_var=0.0):
         self.n_assets = 3
         state_dim = 1 + 2*self.n_assets
         control_dim = self.n_assets
         noise_dim = self.n_assets
-        super().__init__(state_dim, control_dim, noise_dim, batch_size,
-                         t_initial, t_final, nt, alphaL, alphaG, device)
+        super().__init__(state_dim, control_dim, noise_dim, batch_size,t_initial, t_final, nt, alphaL, alphaG, device)
         self.noise_dim = noise_dim
         self.soc_problem_name = '3-asset liquidation'
         self.ic_var = float(ic_var)
