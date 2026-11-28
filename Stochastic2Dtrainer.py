@@ -70,7 +70,7 @@ def run_s2d_jfb(config_oc, config_train, full_AD_mode=False, device="cpu",checkp
     #phi_net.soc_problem = stochastic2D_std
     tracked_iters = 1
     stochastic2D_std.track_all_fp_iters = full_AD_mode
-    implicit_net = ImplicitNetSOC(stochastic2D_std.state_dim, stochastic2D_std.control_dim, max_iters=int(100-tracked_iters), alpha=1e-1, tol=1e-2, tracked_iters=tracked_iters, soc_problem=stochastic2D_std, p_net=phi_net, dev=device).to(device)
+    implicit_net = ImplicitNetSOC(stochastic2D_std.state_dim, stochastic2D_std.control_dim, max_iters=int(100-tracked_iters), alpha=1e-2, tol=1e-4, tracked_iters=tracked_iters, soc_problem=stochastic2D_std, p_net=phi_net, dev=device).to(device)
     if checkpoint is not None:
         # Restore the weights from the best model saved during training.
         implicit_net.load_state_dict(torch.load(checkpoint, map_location=device, weights_only=True))
@@ -142,10 +142,9 @@ def main():
     parser.add_argument("--hidden", type=int, default=64, help="Phi hidden width (default: 64)")
     parser.add_argument("--device", type=str, default="cpu", help="cpu, cuda, or cuda:N (default: cpu)")
     parser.add_argument("--seed", type=int, default=1015, help="Random seed (default: 1015)")
-    parser.add_argument("--ic_mean", type=float, default=[-1.5 , -1.5], help="Initial point")
     parser.add_argument("--ic_var", type = float, default=0.0, help="Initial variance")
-    parser.add_argument("--plot_frequency", type=int, default=50, help="Plot frequency")
-    parser.add_argument("--c",type=float, default=100.0,help="Coefficient of the hill Q(z) (default: 500)")
+    parser.add_argument("--plot_frequency", type=int, default=10, help="Plot frequency")
+    parser.add_argument("--c",type=float, default=150.0,help="Coefficient of the hill Q(z) (default: 500)")
 
     args = parser.parse_args()
 
