@@ -422,17 +422,17 @@ class ImplicitNetSOC(nn.Module, ABC):
             self.last_max_res_norm = max_res_norm.item() if torch.is_tensor(max_res_norm) else max_res_norm
             self.last_converged = converged
 
-        if self.training:
+        # Apply the same final control updates in training and evaluation.
+        with torch.set_grad_enabled(self.training and torch.is_grad_enabled()):
             for i in range(self.tracked_iters):
                 u = self.apply_control_limits(self.T(u, x, t))
+
             output = self.apply_control_limits(self.T(u, x, t))
-            if max_res_out:
-                return output, max_res_norm, n_max_iters # accumulate everything in info
-            else:
-                return output
-        else:
-            output = u
-            return output
+
+        if self.training and max_res_out:
+            return output, max_res_norm, n_max_iters
+
+        return output
         
 
     def set_convergence_tracking(self, track=True):

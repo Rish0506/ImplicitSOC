@@ -49,7 +49,7 @@ class Logger(object):
 # this happens as son as Python loads the file         
 sys.stdout = Logger("results_Stochastic2D/stochastic2d_run.log")
 
-def run_s2d_jfb(config_oc, config_train, full_AD_mode=False, device="cpu"):
+def run_s2d_jfb(config_oc, config_train, full_AD_mode=False, device="cpu",checkpoint=None):
     """
     Solves Stochastic2D optimal control problem with INN + JFB
     """
@@ -71,6 +71,16 @@ def run_s2d_jfb(config_oc, config_train, full_AD_mode=False, device="cpu"):
     tracked_iters = 1
     stochastic2D_std.track_all_fp_iters = full_AD_mode
     implicit_net = ImplicitNetSOC(stochastic2D_std.state_dim, stochastic2D_std.control_dim, max_iters=int(100-tracked_iters), alpha=1e-1, tol=1e-2, tracked_iters=tracked_iters, soc_problem=stochastic2D_std, p_net=phi_net, dev=device).to(device)
+    if checkpoint is not None:
+        # Restore the weights from the best model saved during training.
+        implicit_net.load_state_dict(torch.load(checkpoint, map_location=device, weights_only=True))
+        # Every Brownian path starts from the same initial point.
+        z0_eval = stochastic2D_std.ic_mean.repeat(config_oc['batch_size'], 1)
+        phi_nn, J_nn, error = stochastic2D_std.evaluate(u=implicit_net, z0=z0_eval)
+
+        print(f"Evaluated checkpoint: {checkpoint}")
+        print(f"Phi_NN: {phi_nn:.6f} | J_NN: {J_nn:.6f} | Error: {error:.6f}")
+        return
     optimizer_std = torch.optim.Adam(implicit_net.parameters(), lr=config_train['lr'])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer_std, mode="min", factor=0.5, patience=40, min_lr=1e-4)
     trainer_std = OptimalControlTrainer(implicit_net, stochastic2D_std, optimizer_std, scheduler=scheduler,ver=True, device=device)
@@ -82,11 +92,6 @@ def run_s2d_jfb(config_oc, config_train, full_AD_mode=False, device="cpu"):
 
     z0_std = stochastic2D_std.sample_initial_condition()
     trainer_std.train(z0_std, num_epochs=config_train['epochs'], plot_frequency=100, save_model_name=save_model_name)
-    z0_eval = torch.tensor([[-2.5,-2.5]], dtype = torch.float32, device = device).repeat(config_oc['batch_size'],1)
-    phi_nn, J_nn, error = stochastic2D_std.evaluate(u=implicit_net, z0=z0_eval)
-    print(f"#############################################################")
-    print(f"Phi_NN: {phi_nn:.6f} | J_NN: {J_nn:.6f} | Error: {error:.6f}")
-    print(f"#############################################################")
 
 # def run_s2d_jbb(config_oc,config_train, device="cpu", plot_frequency=None):
 #     """
@@ -130,6 +135,7 @@ def main():
     parser.add_argument("--batch_size", type=int, default=32, help="Trajectories per step (default: 32)")
     parser.add_argument("--nt", type=int, default=20, help="Time steps on [0, t_final] (default: 20)")
     parser.add_argument("--t_final", type=float, default=1.0, help="Horizon (default: 1.0)")
+    parser.add_argument("--evaluate", type=str, default=None,help="Path to a saved best policy to evaluate")
     parser.add_argument("--epochs", type=int, default=10, help="Epochs per trial (default: 500)")
     parser.add_argument("--lr", type=float, default=1.0e-3, help="Adam learning rate (default: 1e-3)")
     parser.add_argument("--n_trials", type=int, default=1, help="Repeated runs. The seed is set once (default: 1)")
@@ -158,6 +164,10 @@ def main():
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
+    if args.evaluate is not None:
+        run_s2d_jfb(config_oc, config_train, device=args.device,
+                    checkpoint=args.evaluate)
+        return
 
     config_oc = {
         "batch_size": args.batch_size,
