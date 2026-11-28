@@ -164,10 +164,6 @@ def main():
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
-    if args.evaluate is not None:
-        run_s2d_jfb(config_oc, config_train, device=args.device,
-                    checkpoint=args.evaluate)
-        return
 
     config_oc = {
         "batch_size": args.batch_size,
@@ -180,6 +176,11 @@ def main():
         "lr": args.lr,
         "epochs": args.epochs,
     }
+
+    if args.evaluate is not None:
+            run_s2d_jfb(config_oc, config_train, device=args.device,
+                        checkpoint=args.evaluate)
+            return
     #plot_frequency = args.plot_every if args.plot_every > 0 else None
 
     print(f"device={args.device}  seed={args.seed}  trials={args.n_trials}")
